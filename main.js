@@ -2,7 +2,16 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebas
 import { getFirestore, collection, addDoc, getDocs, query, deleteDoc, doc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 import { getStorage } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-storage.js";
 
-// Твой конфиг Firebase
+// --- 1. РЕГИСТРАЦИЯ SERVICE WORKER (ДЛЯ PWA) ---
+if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+        navigator.serviceWorker.register('sw.js')
+            .then(reg => console.log('Service Worker зарегистрирован!', reg))
+            .catch(err => console.log('Ошибка SW:', err));
+    });
+}
+
+// --- 2. КОНФИГУРАЦИЯ FIREBASE ---
 const firebaseConfig = {
     apiKey: "AIza***",
     authDomain: "***",
@@ -26,9 +35,9 @@ const trackList = document.getElementById('track-list');
 const navSearch = document.getElementById('nav-search');
 const navLibrary = document.getElementById('nav-library');
 
-// --- УТИЛИТЫ ---
+// --- 3. УТИЛИТЫ ---
 
-// Функция для защиты от XSS (очистка текста от потенциально опасного кода)
+// Функция для защиты от XSS
 function escapeHTML(str) {
     if (!str) return '';
     const div = document.createElement('div');
@@ -36,7 +45,7 @@ function escapeHTML(str) {
     return div.innerHTML;
 }
 
-// --- ЛОГИКА НАВИГАЦИИ ---
+// --- 4. ЛОГИКА НАВИГАЦИИ ---
 
 navSearch.addEventListener('click', () => {
     navSearch.classList.add('active');
@@ -50,7 +59,7 @@ navLibrary.addEventListener('click', async () => {
     loadLibrary();
 });
 
-// --- РАБОТА С JAMENDO ---
+// --- 5. РАБОТА С JAMENDO ---
 
 searchInput.addEventListener('keypress', (e) => {
     if (e.key === 'Enter') {
@@ -73,7 +82,7 @@ async function searchMusic(queryText) {
     }
 }
 
-// --- ОТРИСОВКА ---
+// --- 6. ОТРИСОВКА ---
 
 function renderTracks(tracks, isLibrary) {
     trackList.innerHTML = '';
@@ -86,7 +95,6 @@ function renderTracks(tracks, isLibrary) {
     tracks.forEach(track => {
         const trackCard = document.createElement('div');
         trackCard.className = 'track-card';
-        // Используем escapeHTML для безопасной вставки данных
         trackCard.innerHTML = `
             <div class="track-info">
                 <strong>${escapeHTML(track.name)}</strong>
@@ -108,7 +116,7 @@ function renderTracks(tracks, isLibrary) {
     });
 }
 
-// --- ДЕЛЕГИРОВАНИЕ СОБЫТИЙ (Один обработчик вместо цикла) ---
+// --- 7. ДЕЛЕГИРОВАНИЕ СОБЫТИЙ ---
 
 trackList.addEventListener('click', (e) => {
     const target = e.target;
@@ -125,24 +133,23 @@ trackList.addEventListener('click', (e) => {
     }
 });
 
-// --- ОФФЛАЙН И СИНХРОНИЗАЦИЯ ---
+// --- 8. ОФФЛАЙН И СИНХРОНИЗАЦИЯ ---
 
 async function handleLike(btn) {
     const track = btn.dataset;
-    btn.innerHTML = '⏳'; // Показываем загрузку
+    btn.innerHTML = '⏳';
 
     try {
-        // 1. Сохраняем в кэш браузера (Оффлайн доступ)
+        // 1. Сохраняем аудио в кэш браузера
         const cache = await caches.open(CACHE_NAME);
         try {
-            // mode: 'no-cors' помогает обойти блокировки CORS при кэшировании сторонних медиа
             const response = await fetch(track.url, { mode: 'no-cors' });
             await cache.put(track.url, response);
         } catch (cacheError) {
             console.warn("Не удалось сохранить аудио в кэш:", cacheError);
         }
 
-        // 2. Записываем в Firestore (Синхронизация)
+        // 2. Записываем информацию в Firestore
         await addDoc(collection(db, "liked_tracks"), {
             trackId: track.id,
             name: track.name,
@@ -152,7 +159,6 @@ async function handleLike(btn) {
         });
 
         btn.innerHTML = '❤️';
-        console.log("Сохранено оффлайн и в БД:", track.name);
     } catch (error) {
         console.error("Ошибка сохранения:", error);
         btn.innerHTML = '❌';
@@ -169,7 +175,7 @@ async function loadLibrary() {
         querySnapshot.forEach((docSnap) => {
             const data = docSnap.data();
             tracks.push({
-                docId: docSnap.id, // ID документа для последующего удаления
+                docId: docSnap.id, 
                 id: data.trackId,
                 name: data.name,
                 artist_name: data.artist,
@@ -177,7 +183,6 @@ async function loadLibrary() {
             });
         });
         
-        // Сортируем треки по свежести
         renderTracks(tracks.reverse(), true);
     } catch (error) {
         console.error("Ошибка загрузки библиотеки:", error);
@@ -190,42 +195,31 @@ async function handleDelete(btn) {
     const docId = btn.dataset.docid;
     const audioUrl = btn.dataset.url;
 
-    // Оптимистичное удаление из UI
     card.remove();
 
-    // Если список стал пустым, показываем сообщение
     if (trackList.children.length === 0) {
         trackList.innerHTML = '<p class="status">Список пуст</p>';
     }
 
     try {
-        // 1. Удаление из Firestore
         if (docId) {
             await deleteDoc(doc(db, "liked_tracks", docId));
         }
-
-        // 2. Удаление из кэша браузера
         const cache = await caches.open(CACHE_NAME);
         await cache.delete(audioUrl);
-
-        console.log("Трек успешно удален");
     } catch (error) {
         console.error("Ошибка при удалении:", error);
-        alert("Произошла ошибка при удалении трека из базы.");
+        alert("Ошибка при удалении из базы.");
     }
 }
 
-// --- ПЛЕЕР ---
+// --- 9. ПЛЕЕР ---
 
-// Обновленная функция плеера, которая работает с HTML-элементом
 function playMusic(url) {
     const audio = document.getElementById('main-player');
-    
     if (audio) {
         audio.src = url;
-        audio.style.display = 'block'; // Показываем плеер при запуске первого трека
+        audio.style.display = 'block'; 
         audio.play().catch(e => console.error("Ошибка воспроизведения:", e));
-    } else {
-        console.error("Элемент аудиоплеера не найден в HTML!");
     }
 }

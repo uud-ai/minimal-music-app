@@ -1,94 +1,205 @@
+/* --- 1. БАЗОВЫЕ НАСТРОЙКИ (СБРОС И ГРАНИЦЫ) --- */
+*, *::before, *::after {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
 :root {
     --ivory: #FFFFF0;
     --gold: #D4AF37;
     --dark: #1A1A1A;
     --gray: #8E8E8E;
+    --light-gold: rgba(212, 175, 55, 0.15); /* Цвет для деликатных линий и ховеров */
 }
 
-body {
-    margin: 0;
+html, body {
+    width: 100%;
+    max-width: 100vw;
+    overflow-x: hidden; /* Строго запрещаем скролл по горизонтали */
     background-color: var(--ivory);
-    font-family: 'Segoe UI', sans-serif;
+    /* Подключаем минималистичный шрифт, который мы добавили в HTML */
+    font-family: 'Outfit', 'Segoe UI', sans-serif; 
     color: var(--dark);
+    -webkit-tap-highlight-color: transparent; /* Убирает синий квадрат при тапе на телефоне */
 }
 
+#app {
+    width: 100%;
+    max-width: 100%;
+    overflow-x: hidden;
+    /* Оставляем место внизу, чтобы треки не прятались за плеером и навигацией */
+    padding-bottom: 140px; 
+}
+
+/* --- 2. ШАПКА И ПОИСК --- */
 header {
-    padding: 20px;
+    padding: 20px 0; /* Убрали боковые отступы, они теперь у контейнера поиска */
     border-bottom: 1px solid var(--gold);
+    background-color: var(--ivory);
+}
+
+header h1 {
+    text-align: center;
+    margin-bottom: 15px;
+    font-weight: 500;
+    letter-spacing: 1px;
+}
+
+.search-container {
+    width: 100%;
+    padding: 0 20px; /* Безопасные отступы, не разрывающие ширину экрана */
 }
 
 #search-input {
     width: 100%;
-    padding: 12px;
+    max-width: 100%;
+    padding: 12px 15px;
     border: 1px solid var(--gold);
     background: transparent;
+    border-radius: 8px; /* Легкое скругление для мягкости интерфейса */
     outline: none;
     font-size: 16px;
+    font-family: inherit;
+    transition: box-shadow 0.3s ease;
 }
 
-.bottom-nav {
-    position: fixed;
-    bottom: 0;
-    width: 100%;
-    display: flex;
-    background: white;
-    border-top: 1px solid var(--gold);
+#search-input:focus {
+    box-shadow: 0 0 8px rgba(212, 175, 55, 0.3); /* Приятное свечение при вводе */
 }
 
-.bottom-nav button {
-    flex: 1;
-    padding: 15px;
-    border: none;
-    background: none;
-    color: var(--gray);
-    text-transform: uppercase;
-    letter-spacing: 1px;
-}
-
-.bottom-nav button.active {
-    color: var(--gold);
-    font-weight: bold;
-}
-
+/* --- 3. СПИСОК ТРЕКОВ --- */
 .track-card {
     display: flex;
     justify-content: space-between;
     align-items: center;
     padding: 15px 20px;
-    border-bottom: 1px solid rgba(212, 175, 55, 0.2); /* Тонкая золотая линия */
+    border-bottom: 1px solid var(--light-gold);
+    background-color: transparent;
     transition: background 0.3s;
+    width: 100%;
 }
 
-.track-card:hover {
-    background-color: rgba(212, 175, 55, 0.05);
+.track-card:hover, .track-card:active {
+    background-color: var(--light-gold);
 }
 
 .track-info {
     display: flex;
     flex-direction: column;
+    flex: 1; /* Позволяет тексту занимать все свободное пространство... */
+    min-width: 0; /* ...НО разрешает тексту обрезаться, если он слишком длинный */
+    margin-right: 15px;
 }
 
 .track-info strong {
     font-size: 1.1rem;
     color: var(--dark);
+    font-weight: 500;
+    white-space: nowrap; /* Запрет переноса строк */
+    overflow: hidden; /* Скрытие лишнего */
+    text-overflow: ellipsis; /* Появление троеточия */
+    margin-bottom: 4px;
 }
 
 .track-info span {
     font-size: 0.9rem;
     color: var(--gray);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
-.like-btn {
+/* --- 4. КНОПКИ ДЕЙСТВИЙ --- */
+.actions {
+    display: flex;
+    gap: 15px;
+    align-items: center;
+    flex-shrink: 0; /* Защита кнопок от сжатия, если текст песни длинный */
+}
+
+.play-btn, .like-btn {
     background: none;
     border: none;
     font-size: 1.5rem;
     cursor: pointer;
+    padding: 5px;
     color: var(--gold);
+    transition: transform 0.2s ease;
+}
+
+.play-btn:active, .like-btn:active {
+    transform: scale(0.9); /* Анимация нажатия */
 }
 
 .status {
     text-align: center;
-    padding: 20px;
+    padding: 40px 20px;
     color: var(--gray);
     font-style: italic;
+}
+
+/* --- 5. ПЛЕЕР --- */
+#audio-wrapper {
+    position: fixed;
+    bottom: 60px; /* Прикреплен ровно над навигацией */
+    left: 0;
+    width: 100%;
+    background-color: var(--ivory);
+    border-top: 1px solid var(--light-gold);
+    padding: 8px 10px;
+    z-index: 100;
+    /* Легкая тень, чтобы отделить плеер от контента под ним */
+    box-shadow: 0 -4px 10px rgba(0, 0, 0, 0.03); 
+}
+
+#main-player {
+    width: 100%;
+    outline: none;
+}
+
+/* Кастомизация фона стандартного HTML-плеера в браузерах Webkit (Chrome/Safari) */
+audio::-webkit-media-controls-panel {
+    background-color: var(--ivory);
+}
+
+/* --- 6. НИЖНЯЯ НАВИГАЦИЯ --- */
+.bottom-nav {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    height: 60px;
+    display: flex;
+    background: var(--ivory);
+    border-top: 1px solid var(--gold);
+    z-index: 110;
+}
+
+.bottom-nav button {
+    flex: 1;
+    padding: 5px;
+    border: none;
+    background: none;
+    color: var(--gray);
+    display: flex;
+    flex-direction: column; /* Иконка над текстом */
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    font-family: inherit;
+    cursor: pointer;
+    transition: color 0.3s;
+}
+
+.bottom-nav button .icon {
+    font-size: 1.2rem;
+}
+
+.bottom-nav button.active {
+    color: var(--gold);
+    font-weight: 500;
 }
