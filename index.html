@@ -1,1 +1,29 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Minimal Music</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div id="app">
+        <header>
+            <h1>My Music</h1>
+            <input type="text" id="search-input" placeholder="Поиск в Jamendo...">
+        </header>
 
+        <main id="player-container">
+            <div id="track-list">
+                <p class="status">Загрузка музыки...</p>
+            </div>
+        </main>
+
+        <nav class="bottom-nav">
+            <button id="nav-search" class="active">Поиск</button>
+            <button id="nav-library">Моя музыка</button>
+        </nav>
+    </div>
+    <script type="module" src="/main.js"></script>
+</body>
+</html>
