@@ -1,0 +1,94 @@
+:root {
+    --ivory: #FFFFF0;
+    --gold: #D4AF37;
+    --dark: #1A1A1A;
+    --gray: #8E8E8E;
+}
+
+body {
+    margin: 0;
+    background-color: var(--ivory);
+    font-family: 'Segoe UI', sans-serif;
+    color: var(--dark);
+}
+
+header {
+    padding: 20px;
+    border-bottom: 1px solid var(--gold);
+}
+
+#search-input {
+    width: 100%;
+    padding: 12px;
+    border: 1px solid var(--gold);
+    background: transparent;
+    outline: none;
+    font-size: 16px;
+}
+
+.bottom-nav {
+    position: fixed;
+    bottom: 0;
+    width: 100%;
+    display: flex;
+    background: white;
+    border-top: 1px solid var(--gold);
+}
+
+.bottom-nav button {
+    flex: 1;
+    padding: 15px;
+    border: none;
+    background: none;
+    color: var(--gray);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+.bottom-nav button.active {
+    color: var(--gold);
+    font-weight: bold;
+}
+
+.track-card {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 15px 20px;
+    border-bottom: 1px solid rgba(212, 175, 55, 0.2); /* Тонкая золотая линия */
+    transition: background 0.3s;
+}
+
+.track-card:hover {
+    background-color: rgba(212, 175, 55, 0.05);
+}
+
+.track-info {
+    display: flex;
+    flex-direction: column;
+}
+
+.track-info strong {
+    font-size: 1.1rem;
+    color: var(--dark);
+}
+
+.track-info span {
+    font-size: 0.9rem;
+    color: var(--gray);
+}
+
+.like-btn {
+    background: none;
+    border: none;
+    font-size: 1.5rem;
+    cursor: pointer;
+    color: var(--gold);
+}
+
+.status {
+    text-align: center;
+    padding: 20px;
+    color: var(--gray);
+    font-style: italic;
+}
