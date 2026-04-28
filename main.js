@@ -11,9 +11,9 @@ if ('serviceWorker' in navigator) {
     });
 }
 
-// --- 2. КОНФИГУРАЦИЯ FIREBASE ---
+// --- 2. КОНФИГУРАЦИЯ FIREBASE И YOUTUBE ---
 const firebaseConfig = {
-    apiKey: "AIza***",
+    apiKey: "AIza***", // Твой ключ Firebase
     authDomain: "***",
     projectId: "***",
     storageBucket: "***",
@@ -21,13 +21,13 @@ const firebaseConfig = {
     appId: "***"
 };
 
-// Инициализация
+// Инициализация Firebase
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 const storage = getStorage(app);
 
-// Константы
-const JAMENDO_CLIENT_ID = "ced92dff";
+// Константы приложения
+const YOUTUBE_API_KEY = "AIzaSyA8qeFj_TG2vxGXQgmsQxvEE4g0i-W5mYg"; // <-- ОБЯЗАТЕЛЬНО ЗАМЕНИ НА СВОЙ КЛЮЧ!
 const CACHE_NAME = 'offline-music-v1';
 
 const searchInput = document.getElementById('search-input');
@@ -35,8 +35,30 @@ const trackList = document.getElementById('track-list');
 const navSearch = document.getElementById('nav-search');
 const navLibrary = document.getElementById('nav-library');
 
-// --- 3. УТИЛИТЫ ---
+// --- 3. ЗАГРУЗКА YOUTUBE ПЛЕЕРА ---
+let ytPlayer;
 
+// Асинхронно загружаем скрипт YouTube IFrame API
+const tag = document.createElement('script');
+tag.src = "https://www.youtube.com/iframe_api";
+const firstScriptTag = document.getElementsByTagName('script')[0];
+firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
+
+// Эта функция автоматически вызовется, когда скрипт YouTube загрузится
+window.onYouTubeIframeAPIReady = function() {
+    ytPlayer = new YT.Player('yt-player', {
+        height: '0',
+        width: '0',
+        videoId: '', 
+        playerVars: {
+            'autoplay': 0,
+            'controls': 0,
+            'playsinline': 1 // Важно для работы на смартфонах
+        }
+    });
+};
+
+// --- 4. УТИЛИТЫ ---
 // Функция для защиты от XSS
 function escapeHTML(str) {
     if (!str) return '';
@@ -45,8 +67,7 @@ function escapeHTML(str) {
     return div.innerHTML;
 }
 
-// --- 4. ЛОГИКА НАВИГАЦИИ ---
-
+// --- 5. ЛОГИКА НАВИГАЦИИ ---
 navSearch.addEventListener('click', () => {
     navSearch.classList.add('active');
     navLibrary.classList.remove('active');
@@ -59,8 +80,7 @@ navLibrary.addEventListener('click', async () => {
     loadLibrary();
 });
 
-// --- 5. РАБОТА С JAMENDO ---
-
+// --- 6. РАБОТА С YOUTUBE API (ПОИСК) ---
 searchInput.addEventListener('keypress', (e) => {
     if (e.key === 'Enter') {
         const queryText = searchInput.value;
@@ -69,21 +89,37 @@ searchInput.addEventListener('keypress', (e) => {
 });
 
 async function searchMusic(queryText) {
-    trackList.innerHTML = '<p class="status">Ищем музыку...</p>';
-    const url = `https://api.jamendo.com/v3.0/tracks/?client_id=${JAMENDO_CLIENT_ID}&format=json&limit=10&search=${encodeURIComponent(queryText)}`;
+    trackList.innerHTML = '<p class="status">Ищем музыку на YouTube...</p>';
+    
+    // Запрос к YouTube Data API (ищем видео в категории Музыка)
+    const url = `https://www.googleapis.com/youtube/v3/search?part=snippet&maxResults=10&q=${encodeURIComponent(queryText)}&type=video&videoCategoryId=10&key=${YOUTUBE_API_KEY}`;
 
     try {
         const response = await fetch(url);
         const data = await response.json();
-        renderTracks(data.results, false);
+        
+        if (data.error) {
+            console.error("Ошибка YouTube API:", data.error.message);
+            trackList.innerHTML = '<p class="status">Ошибка API. Проверьте ключ.</p>';
+            return;
+        }
+
+        // Преобразуем данные YouTube в наш формат
+        const tracks = data.items.map(item => ({
+            id: item.id.videoId, 
+            name: item.snippet.title, 
+            artist_name: item.snippet.channelTitle, 
+            audio: item.id.videoId // В качестве "аудио" передаем ID видео
+        }));
+
+        renderTracks(tracks, false);
     } catch (error) {
-        console.error("Ошибка API:", error);
+        console.error("Ошибка сети:", error);
         trackList.innerHTML = '<p class="status">Ошибка сети. Проверьте подключение.</p>';
     }
 }
 
-// --- 6. ОТРИСОВКА ---
-
+// --- 7. ОТРИСОВКА ИНТЕРФЕЙСА ---
 function renderTracks(tracks, isLibrary) {
     trackList.innerHTML = '';
     
@@ -116,13 +152,12 @@ function renderTracks(tracks, isLibrary) {
     });
 }
 
-// --- 7. ДЕЛЕГИРОВАНИЕ СОБЫТИЙ ---
-
+// --- 8. ДЕЛЕГИРОВАНИЕ СОБЫТИЙ ---
 trackList.addEventListener('click', (e) => {
     const target = e.target;
     
     if (target.classList.contains('play-btn')) {
-        playMusic(target.dataset.url);
+        playMusic(target.dataset.url); // url здесь — это ID видео YouTube
     } else if (target.classList.contains('like-btn')) {
         const isLibrary = navLibrary.classList.contains('active');
         if (isLibrary) {
@@ -133,28 +168,18 @@ trackList.addEventListener('click', (e) => {
     }
 });
 
-// --- 8. ОФФЛАЙН И СИНХРОНИЗАЦИЯ ---
-
+// --- 9. СОХРАНЕНИЕ В БИБЛИОТЕКУ (FIREBASE) ---
 async function handleLike(btn) {
     const track = btn.dataset;
     btn.innerHTML = '⏳';
 
     try {
-        // 1. Сохраняем аудио в кэш браузера
-        const cache = await caches.open(CACHE_NAME);
-        try {
-            const response = await fetch(track.url, { mode: 'no-cors' });
-            await cache.put(track.url, response);
-        } catch (cacheError) {
-            console.warn("Не удалось сохранить аудио в кэш:", cacheError);
-        }
-
-        // 2. Записываем информацию в Firestore
+        // Записываем информацию о треке в Firestore
         await addDoc(collection(db, "liked_tracks"), {
             trackId: track.id,
             name: track.name,
             artist: track.artist,
-            audioUrl: track.url,
+            audioUrl: track.url, // ID видео
             timestamp: Date.now()
         });
 
@@ -193,7 +218,6 @@ async function loadLibrary() {
 async function handleDelete(btn) {
     const card = btn.closest('.track-card');
     const docId = btn.dataset.docid;
-    const audioUrl = btn.dataset.url;
 
     card.remove();
 
@@ -205,21 +229,19 @@ async function handleDelete(btn) {
         if (docId) {
             await deleteDoc(doc(db, "liked_tracks", docId));
         }
-        const cache = await caches.open(CACHE_NAME);
-        await cache.delete(audioUrl);
     } catch (error) {
         console.error("Ошибка при удалении:", error);
         alert("Ошибка при удалении из базы.");
     }
 }
 
-// --- 9. ПЛЕЕР ---
-
-function playMusic(url) {
-    const audio = document.getElementById('main-player');
-    if (audio) {
-        audio.src = url;
-        audio.style.display = 'block'; 
-        audio.play().catch(e => console.error("Ошибка воспроизведения:", e));
+// --- 10. ВОСПРОИЗВЕДЕНИЕ ЧЕРЕЗ YOUTUBE ПЛЕЕР ---
+function playMusic(videoId) {
+    if (ytPlayer && ytPlayer.loadVideoById) {
+        ytPlayer.loadVideoById(videoId);
+        ytPlayer.playVideo();
+        console.log("Играет трек ID:", videoId);
+    } else {
+        console.warn("Плеер YouTube еще не загрузился.");
     }
 }
