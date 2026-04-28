@@ -1,4 +1,4 @@
-const CACHE_NAME = 'music-app-shell-v1';
+const CACHE_NAME = 'music-app-shell-v2';
 
 // ИСПРАВЛЕНО: Добавлены точки для относительных путей (специально для GitHub Pages)
 // Также добавлен manifest.json для полного оффлайн-доступа
