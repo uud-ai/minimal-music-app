@@ -104,14 +104,6 @@ function onPlayerStateChange(event) {
 }
 
 // --- 4. УТИЛИТЫ ---
-// Функция для защиты от XSS
-function escapeHTML(str) {
-    if (!str) return '';
-    const div = document.createElement('div');
-    div.textContent = str;
-    return div.innerHTML;
-}
-
 function formatTime(seconds) {
     if (!isFinite(seconds) || seconds < 0) return '0:00';
     const mins = Math.floor(seconds / 60);
@@ -227,23 +219,40 @@ function renderTracks(tracks, isLibrary) {
     tracks.forEach(track => {
         const trackCard = document.createElement('div');
         trackCard.className = 'track-card';
-        trackCard.innerHTML = `
-            <div class="track-info">
-                <strong>${escapeHTML(track.name)}</strong>
-                <span>${escapeHTML(track.artist_name)}</span>
-            </div>
-            <div class="actions">
-                <button class="play-btn" data-url="${track.audio}" data-name="${escapeHTML(track.name)}" data-artist="${escapeHTML(track.artist_name)}">▶️</button>
-                <button class="like-btn" 
-                    data-id="${track.id}" 
-                    data-url="${track.audio}" 
-                    data-name="${escapeHTML(track.name)}" 
-                    data-artist="${escapeHTML(track.artist_name)}"
-                    data-docid="${track.docId || ''}">
-                    ${isLibrary ? '🗑️' : '♡'}
-                </button>
-            </div>
-        `;
+
+        const info = document.createElement('div');
+        info.className = 'track-info';
+        const nameEl = document.createElement('strong');
+        nameEl.textContent = track.name;
+        const artistEl = document.createElement('span');
+        artistEl.textContent = track.artist_name;
+        info.append(nameEl, artistEl);
+
+        const actions = document.createElement('div');
+        actions.className = 'actions';
+
+        const playBtn = document.createElement('button');
+        playBtn.className = 'play-btn';
+        playBtn.textContent = '▶️';
+        Object.assign(playBtn.dataset, {
+            url: track.audio,
+            name: track.name,
+            artist: track.artist_name
+        });
+
+        const likeBtn = document.createElement('button');
+        likeBtn.className = 'like-btn';
+        likeBtn.textContent = isLibrary ? '🗑️' : '♡';
+        Object.assign(likeBtn.dataset, {
+            id: track.id,
+            url: track.audio,
+            name: track.name,
+            artist: track.artist_name,
+            docid: track.docId || ''
+        });
+
+        actions.append(playBtn, likeBtn);
+        trackCard.append(info, actions);
         trackList.appendChild(trackCard);
     });
 }
