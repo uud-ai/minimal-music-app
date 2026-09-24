@@ -35,8 +35,18 @@ const trackList = document.getElementById('track-list');
 const navSearch = document.getElementById('nav-search');
 const navLibrary = document.getElementById('nav-library');
 
+const audioWrapper = document.getElementById('audio-wrapper');
+const npTitle = document.getElementById('np-title');
+const npArtist = document.getElementById('np-artist');
+const npPlayPause = document.getElementById('np-playpause');
+const npSeek = document.getElementById('np-seek');
+const npCurrent = document.getElementById('np-current');
+const npDuration = document.getElementById('np-duration');
+
 // --- 3. ЗАГРУЗКА YOUTUBE ПЛЕЕРА ---
 let ytPlayer;
+let progressInterval = null;
+let isSeeking = false;
 
 // Асинхронно загружаем скрипт YouTube IFrame API
 const tag = document.createElement('script');
@@ -54,9 +64,27 @@ window.onYouTubeIframeAPIReady = function() {
             'autoplay': 0,
             'controls': 0,
             'playsinline': 1 // Важно для работы на смартфонах
+        },
+        events: {
+            'onStateChange': onPlayerStateChange
         }
     });
 };
+
+function onPlayerStateChange(event) {
+    if (event.data === YT.PlayerState.PLAYING) {
+        npPlayPause.textContent = '⏸️';
+        startProgressLoop();
+    } else if (event.data === YT.PlayerState.PAUSED) {
+        npPlayPause.textContent = '▶️';
+        stopProgressLoop();
+    } else if (event.data === YT.PlayerState.ENDED) {
+        npPlayPause.textContent = '▶️';
+        stopProgressLoop();
+        npSeek.value = 0;
+        npCurrent.textContent = '0:00';
+    }
+}
 
 // --- 4. УТИЛИТЫ ---
 // Функция для защиты от XSS
@@ -66,6 +94,57 @@ function escapeHTML(str) {
     div.textContent = str;
     return div.innerHTML;
 }
+
+function formatTime(seconds) {
+    if (!isFinite(seconds) || seconds < 0) return '0:00';
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+}
+
+function startProgressLoop() {
+    stopProgressLoop();
+    progressInterval = setInterval(() => {
+        if (!ytPlayer || isSeeking) return;
+        const duration = ytPlayer.getDuration();
+        const current = ytPlayer.getCurrentTime();
+        if (duration > 0) {
+            npSeek.value = (current / duration) * 100;
+            npDuration.textContent = formatTime(duration);
+        }
+        npCurrent.textContent = formatTime(current);
+    }, 500);
+}
+
+function stopProgressLoop() {
+    if (progressInterval) {
+        clearInterval(progressInterval);
+        progressInterval = null;
+    }
+}
+
+// --- 5.1 УПРАВЛЕНИЕ ПЛЕЕРОМ (PAUSE / SEEK) ---
+npPlayPause.addEventListener('click', () => {
+    if (!ytPlayer || !ytPlayer.getPlayerState) return;
+    if (ytPlayer.getPlayerState() === YT.PlayerState.PLAYING) {
+        ytPlayer.pauseVideo();
+    } else {
+        ytPlayer.playVideo();
+    }
+});
+
+npSeek.addEventListener('input', () => {
+    isSeeking = true;
+    const duration = ytPlayer.getDuration();
+    npCurrent.textContent = formatTime((npSeek.value / 100) * duration);
+});
+
+npSeek.addEventListener('change', () => {
+    if (!ytPlayer) return;
+    const duration = ytPlayer.getDuration();
+    ytPlayer.seekTo((npSeek.value / 100) * duration, true);
+    isSeeking = false;
+});
 
 // --- 5. ЛОГИКА НАВИГАЦИИ ---
 navSearch.addEventListener('click', () => {
@@ -137,7 +216,7 @@ function renderTracks(tracks, isLibrary) {
                 <span>${escapeHTML(track.artist_name)}</span>
             </div>
             <div class="actions">
-                <button class="play-btn" data-url="${track.audio}">▶️</button>
+                <button class="play-btn" data-url="${track.audio}" data-name="${escapeHTML(track.name)}" data-artist="${escapeHTML(track.artist_name)}">▶️</button>
                 <button class="like-btn" 
                     data-id="${track.id}" 
                     data-url="${track.audio}" 
@@ -157,7 +236,7 @@ trackList.addEventListener('click', (e) => {
     const target = e.target;
     
     if (target.classList.contains('play-btn')) {
-        playMusic(target.dataset.url); // url здесь — это ID видео YouTube
+        playMusic(target.dataset.url, target.dataset.name, target.dataset.artist); // url здесь — это ID видео YouTube
     } else if (target.classList.contains('like-btn')) {
         const isLibrary = navLibrary.classList.contains('active');
         if (isLibrary) {
@@ -236,10 +315,18 @@ async function handleDelete(btn) {
 }
 
 // --- 10. ВОСПРОИЗВЕДЕНИЕ ЧЕРЕЗ YOUTUBE ПЛЕЕР ---
-function playMusic(videoId) {
+function playMusic(videoId, name, artist) {
     if (ytPlayer && ytPlayer.loadVideoById) {
         ytPlayer.loadVideoById(videoId);
         ytPlayer.playVideo();
+
+        npTitle.textContent = name || '—';
+        npArtist.textContent = artist || '';
+        npSeek.value = 0;
+        npCurrent.textContent = '0:00';
+        npDuration.textContent = '0:00';
+        audioWrapper.classList.remove('hidden');
+
         console.log("Играет трек ID:", videoId);
     } else {
         console.warn("Плеер YouTube еще не загрузился.");

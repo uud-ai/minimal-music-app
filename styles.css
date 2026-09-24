@@ -140,6 +140,10 @@ header h1 {
 }
 
 /* --- 5. ПЛЕЕР --- */
+.hidden {
+    display: none !important;
+}
+
 #audio-wrapper {
     position: fixed;
     bottom: 60px; /* Прикреплен ровно над навигацией */
@@ -147,10 +151,100 @@ header h1 {
     width: 100%;
     background-color: var(--ivory);
     border-top: 1px solid var(--light-gold);
-    padding: 8px 10px;
+    padding: 10px 20px;
     z-index: 100;
     /* Легкая тень, чтобы отделить плеер от контента под ним */
-    box-shadow: 0 -4px 10px rgba(0, 0, 0, 0.03); 
+    box-shadow: 0 -4px 10px rgba(0, 0, 0, 0.03);
+}
+
+.np-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.np-info {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    flex: 1;
+}
+
+.np-info strong {
+    font-size: 0.95rem;
+    font-weight: 500;
+    color: var(--dark);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.np-info span {
+    font-size: 0.8rem;
+    color: var(--gray);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+#np-playpause {
+    flex-shrink: 0;
+    background: none;
+    border: none;
+    font-size: 1.6rem;
+    line-height: 1;
+    cursor: pointer;
+    padding: 4px;
+    color: var(--gold);
+}
+
+#np-playpause:active {
+    transform: scale(0.9);
+}
+
+.np-progress {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 6px;
+}
+
+.np-progress span {
+    font-size: 0.7rem;
+    color: var(--gray);
+    min-width: 32px;
+    text-align: center;
+}
+
+#np-seek {
+    flex: 1;
+    -webkit-appearance: none;
+    appearance: none;
+    height: 4px;
+    border-radius: 2px;
+    background: var(--light-gold);
+    outline: none;
+    cursor: pointer;
+}
+
+#np-seek::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: var(--gold);
+    cursor: pointer;
+}
+
+#np-seek::-moz-range-thumb {
+    width: 12px;
+    height: 12px;
+    border: none;
+    border-radius: 50%;
+    background: var(--gold);
+    cursor: pointer;
 }
 
 #main-player {
