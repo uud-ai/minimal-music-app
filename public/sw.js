@@ -1,4 +1,4 @@
-const CACHE_NAME = 'music-app-shell-v2';
+const CACHE_NAME = 'music-app-shell-v3';
 
 // ИСПРАВЛЕНО: Добавлены точки для относительных путей (специально для GitHub Pages)
 // Также добавлен manifest.json для полного оффлайн-доступа
@@ -7,7 +7,10 @@ const ASSETS_TO_CACHE = [
   './index.html',
   './styles.css',
   './main.js',
-  './manifest.json'
+  './manifest.json',
+  './icon-192.png',
+  './icon-512.png',
+  './icon-512-maskable.png'
 ];
 
 // Установка воркера и кэширование файлов интерфейса
