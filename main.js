@@ -71,6 +71,9 @@ let currentIsLibrary = false;
 let activeQueue = null;
 let activeQueueIndex = -1;
 
+// Последние результаты поиска — чтобы не терять их при переходе на вкладку «Моя музыка» и обратно
+let lastSearchTracks = null;
+
 // Асинхронно загружаем скрипт YouTube IFrame API
 const tag = document.createElement('script');
 tag.src = "https://www.youtube.com/iframe_api";
@@ -171,7 +174,11 @@ npSeek.addEventListener('change', () => {
 navSearch.addEventListener('click', () => {
     navSearch.classList.add('active');
     navLibrary.classList.remove('active');
-    trackList.innerHTML = '<p class="status">Введите название песни для поиска</p>';
+    if (lastSearchTracks) {
+        renderTracks(lastSearchTracks, false);
+    } else {
+        trackList.innerHTML = '<p class="status">Введите название песни для поиска</p>';
+    }
 });
 
 navLibrary.addEventListener('click', async () => {
@@ -212,6 +219,7 @@ async function searchMusic(queryText) {
             audio: item.id.videoId // В качестве "аудио" передаем ID видео
         }));
 
+        lastSearchTracks = tracks;
         renderTracks(tracks, false);
     } catch (error) {
         console.error("Ошибка сети:", error);

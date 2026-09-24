@@ -1,34 +1,45 @@
-const CACHE_NAME = 'music-app-shell-v3';
+const CACHE_NAME = 'music-app-shell-v4';
 
-// Относительные пути, чтобы кэш работал независимо от корня деплоя
-// Также добавлен manifest.json для полного оффлайн-доступа
-const ASSETS_TO_CACHE = [
+// Только стабильные пути из public/ — хэшированные assets/index-*.js/css
+// от vite build сюда не входят (их имя меняется на каждой сборке),
+// они докладываются в кэш во время выполнения через fetch-обработчик ниже.
+const PRECACHE_ASSETS = [
   './',
   './index.html',
-  './styles.css',
-  './main.js',
   './manifest.json',
   './icon-192.png',
   './icon-512.png',
   './icon-512-maskable.png'
 ];
 
-// Установка воркера и кэширование файлов интерфейса
+// Установка воркера и кэширование стабильных файлов оболочки приложения
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
       console.log('Кэширование файлов приложения...');
-      return cache.addAll(ASSETS_TO_CACHE);
+      return cache.addAll(PRECACHE_ASSETS);
     })
   );
 });
 
-// Перехват запросов (чтобы интерфейс грузился без интернета)
+// Перехват запросов: отдаём из кэша, иначе идём в сеть и докладываем
+// успешный ответ в кэш (так хэшированные JS/CSS бандлы попадают в офлайн-кэш сами)
 self.addEventListener('fetch', (event) => {
+  if (event.request.method !== 'GET') return;
+
   event.respondWith(
-    caches.match(event.request).then((response) => {
-      // Если файл есть в кэше — отдаем его, иначе делаем запрос в интернет
-      return response || fetch(event.request);
+    caches.match(event.request).then((cached) => {
+      if (cached) return cached;
+
+      return fetch(event.request)
+        .then((response) => {
+          if (response.ok && event.request.url.startsWith(self.location.origin)) {
+            const responseClone = response.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, responseClone));
+          }
+          return response;
+        })
+        .catch(() => cached);
     })
   );
 });
