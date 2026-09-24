@@ -1,6 +1,7 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
-import { getFirestore, collection, addDoc, getDocs, query, deleteDoc, doc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+import { getFirestore, collection, addDoc, getDocs, query, where, deleteDoc, doc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 import { getStorage } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-storage.js";
+import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 
 // --- 1. РЕГИСТРАЦИЯ SERVICE WORKER (ДЛЯ PWA) ---
 if ('serviceWorker' in navigator) {
@@ -25,6 +26,22 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 const storage = getStorage(app);
+const auth = getAuth(app);
+
+// --- 2.1 АНОНИМНАЯ АВТОРИЗАЦИЯ ---
+// Библиотека привязывается к uid устройства, чтобы каждый пользователь видел только свои треки
+let currentUser = null;
+const authReady = new Promise((resolve) => {
+    onAuthStateChanged(auth, (user) => {
+        if (user) {
+            currentUser = user;
+            resolve(user);
+        }
+    });
+    signInAnonymously(auth).catch((error) => {
+        console.error("Ошибка анонимного входа:", error);
+    });
+});
 
 // Константы приложения
 const YOUTUBE_API_KEY = "ВСТАВЬ_СЮДА_СВОЙ_КЛЮЧ"; // Ключ отозван — см. README про настройку и хранение секретов
@@ -253,8 +270,10 @@ async function handleLike(btn) {
     btn.innerHTML = '⏳';
 
     try {
-        // Записываем информацию о треке в Firestore
+        await authReady;
+        // Записываем информацию о треке в Firestore, привязывая к текущему пользователю
         await addDoc(collection(db, "liked_tracks"), {
+            uid: currentUser.uid,
             trackId: track.id,
             name: track.name,
             artist: track.artist,
@@ -272,7 +291,8 @@ async function handleLike(btn) {
 async function loadLibrary() {
     trackList.innerHTML = '<p class="status">Загружаем вашу библиотеку...</p>';
     try {
-        const q = query(collection(db, "liked_tracks"));
+        await authReady;
+        const q = query(collection(db, "liked_tracks"), where("uid", "==", currentUser.uid));
         const querySnapshot = await getDocs(q);
         const tracks = [];
         
