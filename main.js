@@ -65,6 +65,12 @@ let ytPlayer;
 let progressInterval = null;
 let isSeeking = false;
 
+// Очередь нон-стоп воспроизведения (заполняется только при проигрывании из «Моя музыка»)
+let currentTracks = [];
+let currentIsLibrary = false;
+let activeQueue = null;
+let activeQueueIndex = -1;
+
 // Асинхронно загружаем скрипт YouTube IFrame API
 const tag = document.createElement('script');
 tag.src = "https://www.youtube.com/iframe_api";
@@ -100,6 +106,12 @@ function onPlayerStateChange(event) {
         stopProgressLoop();
         npSeek.value = 0;
         npCurrent.textContent = '0:00';
+
+        // Нон-стоп: если трек играл из очереди «Моя музыка», включаем следующий (по кругу)
+        if (activeQueue && activeQueue.length > 0) {
+            const nextIndex = (activeQueueIndex + 1) % activeQueue.length;
+            playFromList(nextIndex, activeQueue, true);
+        }
     }
 }
 
@@ -210,13 +222,15 @@ async function searchMusic(queryText) {
 // --- 7. ОТРИСОВКА ИНТЕРФЕЙСА ---
 function renderTracks(tracks, isLibrary) {
     trackList.innerHTML = '';
-    
+    currentTracks = tracks || [];
+    currentIsLibrary = isLibrary;
+
     if (!tracks || tracks.length === 0) {
         trackList.innerHTML = '<p class="status">Список пуст</p>';
         return;
     }
 
-    tracks.forEach(track => {
+    tracks.forEach((track, index) => {
         const trackCard = document.createElement('div');
         trackCard.className = 'track-card';
 
@@ -235,6 +249,7 @@ function renderTracks(tracks, isLibrary) {
         playBtn.className = 'play-btn';
         playBtn.textContent = '▶️';
         Object.assign(playBtn.dataset, {
+            index: String(index),
             url: track.audio,
             name: track.name,
             artist: track.artist_name
@@ -262,7 +277,7 @@ trackList.addEventListener('click', (e) => {
     const target = e.target;
     
     if (target.classList.contains('play-btn')) {
-        playMusic(target.dataset.url, target.dataset.name, target.dataset.artist); // url здесь — это ID видео YouTube
+        playFromList(Number(target.dataset.index), currentTracks, currentIsLibrary);
     } else if (target.classList.contains('like-btn')) {
         const isLibrary = navLibrary.classList.contains('active');
         if (isLibrary) {
@@ -344,6 +359,17 @@ async function handleDelete(btn) {
 }
 
 // --- 10. ВОСПРОИЗВЕДЕНИЕ ЧЕРЕЗ YOUTUBE ПЛЕЕР ---
+function playFromList(index, tracks, isLibrary) {
+    const track = tracks[index];
+    if (!track) return;
+
+    // Очередь нон-стоп заводим только для «Моя музыка»; из поиска играет один трек
+    activeQueue = isLibrary ? tracks : null;
+    activeQueueIndex = index;
+
+    playMusic(track.audio, track.name, track.artist_name);
+}
+
 function playMusic(videoId, name, artist) {
     if (ytPlayer && ytPlayer.loadVideoById) {
         ytPlayer.loadVideoById(videoId);
