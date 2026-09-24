@@ -27,7 +27,7 @@ const db = getFirestore(app);
 const storage = getStorage(app);
 
 // Константы приложения
-const YOUTUBE_API_KEY = "AIzaSyA8qeFj_TG2vxGXQgmsQxvEE4g0i-W5mYg"; // <-- ОБЯЗАТЕЛЬНО ЗАМЕНИ НА СВОЙ КЛЮЧ!
+const YOUTUBE_API_KEY = "ВСТАВЬ_СЮДА_СВОЙ_КЛЮЧ"; // Ключ отозван — см. README про настройку и хранение секретов
 const CACHE_NAME = 'offline-music-v1';
 
 const searchInput = document.getElementById('search-input');
