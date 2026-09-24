@@ -44,7 +44,7 @@ const authReady = new Promise((resolve) => {
 });
 
 // Константы приложения
-const YOUTUBE_API_KEY = "ВСТАВЬ_СЮДА_СВОЙ_КЛЮЧ"; // Ключ отозван — см. README про настройку и хранение секретов
+const YOUTUBE_API_KEY = "AIzaSyBgrlvnKuTsj4HSitEUT3Ae4yJLbNozfd8";
 const CACHE_NAME = 'offline-music-v1';
 
 const searchInput = document.getElementById('search-input');
