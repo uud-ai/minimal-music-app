@@ -14,12 +14,12 @@ if ('serviceWorker' in navigator) {
 
 // --- 2. КОНФИГУРАЦИЯ FIREBASE И YOUTUBE ---
 const firebaseConfig = {
-    apiKey: "AIza***", // Твой ключ Firebase
-    authDomain: "***",
-    projectId: "***",
-    storageBucket: "***",
-    messagingSenderId: "***",
-    appId: "***"
+    apiKey: "AIzaSyDCYcwNHXw0Vv3OJEAPl1qgi03H-Y_qfBU",
+    authDomain: "minimal-music-app-e3bd3.firebaseapp.com",
+    projectId: "minimal-music-app-e3bd3",
+    storageBucket: "minimal-music-app-e3bd3.firebasestorage.app",
+    messagingSenderId: "1081743657641",
+    appId: "1:1081743657641:web:a5ebfcc79fc50f8b2177b8"
 };
 
 // Инициализация Firebase
