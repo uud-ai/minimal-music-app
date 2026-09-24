@@ -1,8 +1,3 @@
-import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
-import { getFirestore, collection, addDoc, getDocs, query, where, deleteDoc, doc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
-import { getStorage } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-storage.js";
-import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
-
 // --- 1. РЕГИСТРАЦИЯ SERVICE WORKER (ДЛЯ PWA) ---
 if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
@@ -11,6 +6,17 @@ if ('serviceWorker' in navigator) {
             .catch(err => console.log('Ошибка SW:', err));
     });
 }
+
+// Прогреваем Firebase в фоне уже после того, как страница отрисовалась —
+// не блокируем первый показ поиска, но к первому лайку SDK, скорее всего, уже готов
+window.addEventListener('load', () => {
+    const warmUp = () => loadFirebase();
+    if ('requestIdleCallback' in window) {
+        requestIdleCallback(warmUp, { timeout: 3000 });
+    } else {
+        setTimeout(warmUp, 2000);
+    }
+});
 
 // --- 2. КОНФИГУРАЦИЯ FIREBASE И YOUTUBE ---
 const firebaseConfig = {
@@ -22,30 +28,54 @@ const firebaseConfig = {
     appId: "1:1081743657641:web:a5ebfcc79fc50f8b2177b8"
 };
 
-// Инициализация Firebase
-const app = initializeApp(firebaseConfig);
-const db = getFirestore(app);
-const storage = getStorage(app);
-const auth = getAuth(app);
+// --- 2.1 ЛЕНИВАЯ ЗАГРУЗКА FIREBASE ---
+// Firebase SDK (~700КБ) нужен только для «Моя музыка» — не блокируем им
+// поиск и воспроизведение, а подгружаем по требованию (и заранее в фоне,
+// пока пользователь читает результаты поиска).
+let firebasePromise = null;
+function loadFirebase() {
+    if (!firebasePromise) {
+        firebasePromise = (async () => {
+            const [
+                { initializeApp },
+                { getFirestore, collection, addDoc, getDocs, query, where, deleteDoc, doc },
+                { getAuth, signInAnonymously, onAuthStateChanged }
+            ] = await Promise.all([
+                import("https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js"),
+                import("https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js"),
+                import("https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js")
+            ]);
 
-// --- 2.1 АНОНИМНАЯ АВТОРИЗАЦИЯ ---
-// Библиотека привязывается к uid устройства, чтобы каждый пользователь видел только свои треки
-let currentUser = null;
-const authReady = new Promise((resolve) => {
-    onAuthStateChanged(auth, (user) => {
-        if (user) {
-            currentUser = user;
-            resolve(user);
-        }
-    });
-    signInAnonymously(auth).catch((error) => {
-        console.error("Ошибка анонимного входа:", error);
-    });
-});
+            const app = initializeApp(firebaseConfig);
+            const db = getFirestore(app);
+            const auth = getAuth(app);
+
+            // Библиотека привязывается к uid устройства, чтобы каждый пользователь видел только свои треки
+            let currentUser = null;
+            const authReady = new Promise((resolve) => {
+                onAuthStateChanged(auth, (user) => {
+                    if (user) {
+                        currentUser = user;
+                        resolve(user);
+                    }
+                });
+                signInAnonymously(auth).catch((error) => {
+                    console.error("Ошибка анонимного входа:", error);
+                });
+            });
+
+            return {
+                db, collection, addDoc, getDocs, query, where, deleteDoc, doc,
+                authReady,
+                getCurrentUser: () => currentUser
+            };
+        })();
+    }
+    return firebasePromise;
+}
 
 // Константы приложения
 const YOUTUBE_API_KEY = "AIzaSyBgrlvnKuTsj4HSitEUT3Ae4yJLbNozfd8";
-const CACHE_NAME = 'offline-music-v1';
 
 const searchInput = document.getElementById('search-input');
 const trackList = document.getElementById('track-list');
@@ -302,10 +332,11 @@ async function handleLike(btn) {
     btn.innerHTML = '⏳';
 
     try {
-        await authReady;
+        const fb = await loadFirebase();
+        await fb.authReady;
         // Записываем информацию о треке в Firestore, привязывая к текущему пользователю
-        await addDoc(collection(db, "liked_tracks"), {
-            uid: currentUser.uid,
+        await fb.addDoc(fb.collection(fb.db, "liked_tracks"), {
+            uid: fb.getCurrentUser().uid,
             trackId: track.id,
             name: track.name,
             artist: track.artist,
@@ -323,22 +354,23 @@ async function handleLike(btn) {
 async function loadLibrary() {
     trackList.innerHTML = '<p class="status">Загружаем вашу библиотеку...</p>';
     try {
-        await authReady;
-        const q = query(collection(db, "liked_tracks"), where("uid", "==", currentUser.uid));
-        const querySnapshot = await getDocs(q);
+        const fb = await loadFirebase();
+        await fb.authReady;
+        const q = fb.query(fb.collection(fb.db, "liked_tracks"), fb.where("uid", "==", fb.getCurrentUser().uid));
+        const querySnapshot = await fb.getDocs(q);
         const tracks = [];
-        
+
         querySnapshot.forEach((docSnap) => {
             const data = docSnap.data();
             tracks.push({
-                docId: docSnap.id, 
+                docId: docSnap.id,
                 id: data.trackId,
                 name: data.name,
                 artist_name: data.artist,
                 audio: data.audioUrl
             });
         });
-        
+
         renderTracks(tracks.reverse(), true);
     } catch (error) {
         console.error("Ошибка загрузки библиотеки:", error);
@@ -358,7 +390,8 @@ async function handleDelete(btn) {
 
     try {
         if (docId) {
-            await deleteDoc(doc(db, "liked_tracks", docId));
+            const fb = await loadFirebase();
+            await fb.deleteDoc(fb.doc(fb.db, "liked_tracks", docId));
         }
     } catch (error) {
         console.error("Ошибка при удалении:", error);
