@@ -1,4 +1,4 @@
-const CACHE_NAME = 'music-app-shell-v4';
+const CACHE_NAME = 'music-app-shell-v5';
 
 // Только стабильные пути из public/ — хэшированные assets/index-*.js/css
 // от vite build сюда не входят (их имя меняется на каждой сборке),
@@ -22,25 +22,23 @@ self.addEventListener('install', (event) => {
   );
 });
 
-// Перехват запросов: отдаём из кэша, иначе идём в сеть и докладываем
-// успешный ответ в кэш (так хэшированные JS/CSS бандлы попадают в офлайн-кэш сами)
+// Перехват запросов: сначала сеть (чтобы новые деплои сразу были видны),
+// удачный ответ докладываем в кэш, а к кэшу обращаемся только офлайн —
+// иначе cache-first держал бы пользователей на старой версии бандла
+// после каждого деплоя, пока сам sw.js не поменяется.
 self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
 
   event.respondWith(
-    caches.match(event.request).then((cached) => {
-      if (cached) return cached;
-
-      return fetch(event.request)
-        .then((response) => {
-          if (response.ok && event.request.url.startsWith(self.location.origin)) {
-            const responseClone = response.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, responseClone));
-          }
-          return response;
-        })
-        .catch(() => cached);
-    })
+    fetch(event.request)
+      .then((response) => {
+        if (response.ok && event.request.url.startsWith(self.location.origin)) {
+          const responseClone = response.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, responseClone));
+        }
+        return response;
+      })
+      .catch(() => caches.match(event.request))
   );
 });
 
