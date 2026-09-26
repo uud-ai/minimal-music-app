@@ -140,6 +140,35 @@ header h1 {
     font-style: italic;
 }
 
+/* --- 4.1 КНОПКА "ЕЩЁ" --- */
+#load-more-btn {
+    display: block;
+    width: calc(100% - 40px);
+    margin: 15px 20px 20px;
+    padding: 12px;
+    background: transparent;
+    border: 1px solid var(--gold);
+    border-radius: 8px;
+    color: var(--gold);
+    font-size: 0.95rem;
+    font-family: inherit;
+    cursor: pointer;
+    transition: background 0.3s, transform 0.2s ease;
+}
+
+#load-more-btn:hover, #load-more-btn:active {
+    background-color: var(--light-gold);
+}
+
+#load-more-btn:active {
+    transform: scale(0.98);
+}
+
+#load-more-btn:disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+
 /* --- 5. ПЛЕЕР --- */
 .hidden {
     display: none !important;

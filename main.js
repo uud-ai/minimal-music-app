@@ -82,6 +82,8 @@ const trackList = document.getElementById('track-list');
 const navSearch = document.getElementById('nav-search');
 const navLibrary = document.getElementById('nav-library');
 
+const loadMoreBtn = document.getElementById('load-more-btn');
+
 const audioWrapper = document.getElementById('audio-wrapper');
 const npTitle = document.getElementById('np-title');
 const npArtist = document.getElementById('np-artist');
@@ -103,6 +105,8 @@ let activeQueueIndex = -1;
 
 // Последние результаты поиска — чтобы не терять их при переходе на вкладку «Моя музыка» и обратно
 let lastSearchTracks = null;
+let lastSearchQuery = '';
+let nextPageToken = null;
 
 // Асинхронно загружаем скрипт YouTube IFrame API
 const tag = document.createElement('script');
@@ -206,6 +210,7 @@ navSearch.addEventListener('click', () => {
     navLibrary.classList.remove('active');
     if (lastSearchTracks) {
         renderTracks(lastSearchTracks, false);
+        updateLoadMoreButton();
     } else {
         trackList.innerHTML = '<p class="status">Введите название песни для поиска</p>';
     }
@@ -214,6 +219,7 @@ navSearch.addEventListener('click', () => {
 navLibrary.addEventListener('click', async () => {
     navLibrary.classList.add('active');
     navSearch.classList.remove('active');
+    loadMoreBtn.classList.add('hidden');
     loadLibrary();
 });
 
@@ -227,35 +233,73 @@ searchInput.addEventListener('keypress', (e) => {
 
 async function searchMusic(queryText) {
     trackList.innerHTML = '<p class="status">Ищем музыку на YouTube...</p>';
-    
-    // Запрос к YouTube Data API (ищем видео в категории Музыка)
-    const url = `https://www.googleapis.com/youtube/v3/search?part=snippet&maxResults=10&q=${encodeURIComponent(queryText)}&type=video&videoCategoryId=10&key=${YOUTUBE_API_KEY}`;
+    loadMoreBtn.classList.add('hidden');
+    lastSearchQuery = queryText;
+    nextPageToken = null;
+
+    const tracks = await fetchSearchPage(queryText, null);
+    if (tracks === null) return; // ошибка уже отображена внутри fetchSearchPage
+
+    lastSearchTracks = tracks;
+    renderTracks(tracks, false);
+    updateLoadMoreButton();
+}
+
+// Догружает следующую страницу результатов поиска и добавляет её к текущему списку
+async function loadMoreTracks() {
+    if (!nextPageToken || !lastSearchQuery) return;
+
+    loadMoreBtn.disabled = true;
+    loadMoreBtn.textContent = 'Загрузка...';
+
+    const moreTracks = await fetchSearchPage(lastSearchQuery, nextPageToken);
+
+    loadMoreBtn.disabled = false;
+    loadMoreBtn.textContent = 'Ещё';
+
+    if (moreTracks === null) return;
+
+    lastSearchTracks = [...(lastSearchTracks || []), ...moreTracks];
+    renderTracks(lastSearchTracks, false);
+    updateLoadMoreButton();
+}
+
+// Запрашивает одну страницу результатов у YouTube Data API и обновляет nextPageToken
+async function fetchSearchPage(queryText, pageToken) {
+    let url = `https://www.googleapis.com/youtube/v3/search?part=snippet&maxResults=10&q=${encodeURIComponent(queryText)}&type=video&videoCategoryId=10&key=${YOUTUBE_API_KEY}`;
+    if (pageToken) url += `&pageToken=${pageToken}`;
 
     try {
         const response = await fetch(url);
         const data = await response.json();
-        
+
         if (data.error) {
             console.error("Ошибка YouTube API:", data.error.message);
             trackList.innerHTML = '<p class="status">Ошибка API. Проверьте ключ.</p>';
-            return;
+            return null;
         }
 
+        nextPageToken = data.nextPageToken || null;
+
         // Преобразуем данные YouTube в наш формат
-        const tracks = data.items.map(item => ({
-            id: item.id.videoId, 
-            name: item.snippet.title, 
-            artist_name: item.snippet.channelTitle, 
+        return data.items.map(item => ({
+            id: item.id.videoId,
+            name: item.snippet.title,
+            artist_name: item.snippet.channelTitle,
             audio: item.id.videoId // В качестве "аудио" передаем ID видео
         }));
-
-        lastSearchTracks = tracks;
-        renderTracks(tracks, false);
     } catch (error) {
         console.error("Ошибка сети:", error);
         trackList.innerHTML = '<p class="status">Ошибка сети. Проверьте подключение.</p>';
+        return null;
     }
 }
+
+function updateLoadMoreButton() {
+    loadMoreBtn.classList.toggle('hidden', !nextPageToken);
+}
+
+loadMoreBtn.addEventListener('click', loadMoreTracks);
 
 // --- 7. ОТРИСОВКА ИНТЕРФЕЙСА ---
 function renderTracks(tracks, isLibrary) {
