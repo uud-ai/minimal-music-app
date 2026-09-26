@@ -88,6 +88,7 @@ const audioWrapper = document.getElementById('audio-wrapper');
 const npTitle = document.getElementById('np-title');
 const npArtist = document.getElementById('np-artist');
 const npPlayPause = document.getElementById('np-playpause');
+const npLike = document.getElementById('np-like');
 const npSeek = document.getElementById('np-seek');
 const npCurrent = document.getElementById('np-current');
 const npDuration = document.getElementById('np-duration');
@@ -102,6 +103,7 @@ let currentTracks = [];
 let currentIsLibrary = false;
 let activeQueue = null;
 let activeQueueIndex = -1;
+let currentPlayingIsLibrary = false;
 
 // Последние результаты поиска — чтобы не терять их при переходе на вкладку «Моя музыка» и обратно
 let lastSearchTracks = null;
@@ -117,9 +119,11 @@ firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
 // Эта функция автоматически вызовется, когда скрипт YouTube загрузится
 window.onYouTubeIframeAPIReady = function() {
     ytPlayer = new YT.Player('yt-player', {
-        height: '0',
-        width: '0',
-        videoId: '', 
+        // 1x1, а не 0x0 — начиная с 2020-х YouTube считает нулевой по размеру
+        // плеер невидимым и отказывается автозапускать в нём видео
+        height: '1',
+        width: '1',
+        videoId: '',
         playerVars: {
             'autoplay': 0,
             'controls': 0,
@@ -133,6 +137,11 @@ window.onYouTubeIframeAPIReady = function() {
 
 function onPlayerStateChange(event) {
     if (event.data === YT.PlayerState.PLAYING) {
+        // Плеер запускался приглушённым, чтобы обойти блокировку автовоспроизведения
+        // со звуком в браузере — как только видео реально заиграло, возвращаем звук
+        if (ytPlayer.isMuted && ytPlayer.isMuted()) {
+            ytPlayer.unMute();
+        }
         npPlayPause.textContent = '⏸️';
         startProgressLoop();
     } else if (event.data === YT.PlayerState.PAUSED) {
@@ -188,6 +197,17 @@ npPlayPause.addEventListener('click', () => {
         ytPlayer.pauseVideo();
     } else {
         ytPlayer.playVideo();
+    }
+});
+
+// «Сердечко» рядом с play/pause — лайк/удаление текущего играющего трека
+npLike.addEventListener('click', () => {
+    if (npLike.textContent.trim() === '🗑️') {
+        handleDelete(npLike);
+        npLike.textContent = '♡';
+        currentPlayingIsLibrary = false;
+    } else {
+        handleLike(npLike);
     }
 });
 
@@ -426,10 +446,11 @@ async function handleDelete(btn) {
     const card = btn.closest('.track-card');
     const docId = btn.dataset.docid;
 
-    card.remove();
-
-    if (trackList.children.length === 0) {
-        trackList.innerHTML = '<p class="status">Список пуст</p>';
+    if (card) {
+        card.remove();
+        if (trackList.children.length === 0) {
+            trackList.innerHTML = '<p class="status">Список пуст</p>';
+        }
     }
 
     try {
@@ -452,13 +473,30 @@ function playFromList(index, tracks, isLibrary) {
     activeQueue = isLibrary ? tracks : null;
     activeQueueIndex = index;
 
+    updateNowPlayingLikeButton(track, isLibrary);
     playMusic(track.audio, track.name, track.artist_name);
+}
+
+// Синхронизирует «сердечко» внизу с треком, который сейчас играет
+function updateNowPlayingLikeButton(track, isLibrary) {
+    currentPlayingIsLibrary = isLibrary;
+    npLike.textContent = isLibrary ? '🗑️' : '♡';
+    Object.assign(npLike.dataset, {
+        id: track.id,
+        url: track.audio,
+        name: track.name,
+        artist: track.artist_name,
+        docid: track.docId || ''
+    });
 }
 
 function playMusic(videoId, name, artist) {
     if (ytPlayer && ytPlayer.loadVideoById) {
+        // Запускаем приглушённым: браузеры блокируют автовоспроизведение со звуком,
+        // если клик пришёл не напрямую в iframe плеера, а приглушённое всегда разрешено.
+        // Звук возвращаем в onPlayerStateChange, как только видео реально заиграло.
+        ytPlayer.mute();
         ytPlayer.loadVideoById(videoId);
-        ytPlayer.playVideo();
 
         npTitle.textContent = name || '—';
         npArtist.textContent = artist || '';

@@ -218,7 +218,14 @@ header h1 {
     text-overflow: ellipsis;
 }
 
-#np-playpause {
+.np-controls {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
+}
+
+#np-playpause, #np-like {
     flex-shrink: 0;
     background: none;
     border: none;
@@ -229,7 +236,11 @@ header h1 {
     color: var(--gold);
 }
 
-#np-playpause:active {
+#np-like {
+    font-size: 1.4rem;
+}
+
+#np-playpause:active, #np-like:active {
     transform: scale(0.9);
 }
 

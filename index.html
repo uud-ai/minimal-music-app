@@ -39,7 +39,10 @@
                         <strong id="np-title">—</strong>
                         <span id="np-artist"></span>
                     </div>
-                    <button id="np-playpause" aria-label="Пауза / Воспроизведение">⏸️</button>
+                    <div class="np-controls">
+                        <button id="np-like" aria-label="Добавить в «Моя музыка»">♡</button>
+                        <button id="np-playpause" aria-label="Пауза / Воспроизведение">⏸️</button>
+                    </div>
                 </div>
                 <div class="np-progress">
                     <span id="np-current">0:00</span>
@@ -47,7 +50,7 @@
                     <span id="np-duration">0:00</span>
                 </div>
             </div>
-            <div id="yt-player" style="position: absolute; left: -9999px; width: 0; height: 0;"></div>
+            <div id="yt-player" style="position: absolute; left: -9999px; width: 1px; height: 1px;"></div>
         </div>
 
         <nav class="bottom-nav">
