@@ -2,7 +2,7 @@
   "name": "minimal-music-app",
   "version": "1.0.0",
   "private": true,
-  "description": "Минималистичный музыкальный PWA-плеер с поиском YouTube и личной библиотекой на Firebase",
+  "description": "Минималистичный музыкальный PWA-плеер с поиском SoundCloud и личной библиотекой на Firebase",
   "type": "module",
   "scripts": {
     "dev": "vite",
