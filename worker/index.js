@@ -12,6 +12,10 @@ function withCors(response) {
     return new Response(response.body, { status: response.status, headers });
 }
 
+function isSoundcloudHost(hostname) {
+    return hostname === "soundcloud.com" || hostname.endsWith(".soundcloud.com");
+}
+
 function jsonError(message, status) {
     return withCors(new Response(JSON.stringify({ error: message }), {
         status,
@@ -27,7 +31,7 @@ async function handleSearch(url) {
     if (next) {
         // "next" — это next_href из предыдущего ответа SoundCloud (без client_id)
         const nextUrl = new URL(next);
-        if (!nextUrl.hostname.endsWith("soundcloud.com")) {
+        if (!isSoundcloudHost(nextUrl.hostname)) {
             return jsonError("invalid next url", 400);
         }
         nextUrl.searchParams.set("client_id", CLIENT_ID);
@@ -54,7 +58,7 @@ async function handleStream(url) {
     }
 
     // Не даём превратить воркер в открытый прокси на произвольные хосты
-    if (!target.hostname.endsWith("soundcloud.com")) {
+    if (!isSoundcloudHost(target.hostname)) {
         return jsonError("invalid host", 400);
     }
 
