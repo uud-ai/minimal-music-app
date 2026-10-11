@@ -117,6 +117,8 @@ let prefetched = null;        // { resolveUrl, url, at }
 let prefetchInFlight = null;  // resolveUrl, который сейчас резолвится
 const PREFETCH_BEFORE_END = 30;          // сек до конца трека
 const PREFETCH_TTL = 4 * 60 * 1000;      // подписанные ссылки короткоживущие
+const EARLY_SWITCH_SEC = 0.6;            // переключение без паузы (для iOS)
+let earlySwitched = false;               // уже переключились досрочно на этом треке
 
 // Последние результаты поиска — чтобы не терять их при переходе на вкладку «Моя музыка» и обратно
 let lastSearchTracks = null;
@@ -193,6 +195,17 @@ function maybePrefetchNext() {
     const nextIndex = nextQueueIndex();
     if (nextIndex < 0) return;
     const resolveUrl = activeQueue[nextIndex].audio;
+
+    // iOS: если следующая ссылка уже готова, переключаемся чуть раньше конца,
+    // чтобы между треками не было тишины — иначе iOS при заблокированном
+    // экране может заморозить страницу ещё до события 'ended'
+    const remaining = duration - audioPlayer.currentTime;
+    if (remaining < EARLY_SWITCH_SEC && !earlySwitched && prefetched && prefetched.resolveUrl === resolveUrl) {
+        earlySwitched = true;
+        playNext();
+        return;
+    }
+
     if (prefetchInFlight === resolveUrl) return;
     if (prefetched && prefetched.resolveUrl === resolveUrl && Date.now() - prefetched.at < PREFETCH_TTL) return;
 
@@ -584,6 +597,7 @@ async function resolveStreamUrl(streamResolveUrl) {
 async function playMusic(streamResolveUrl, name, artist, readyUrl = null) {
     currentTrack = { audio: streamResolveUrl, name, artist };
     retriedCurrent = false;
+    earlySwitched = false;
 
     npTitle.textContent = name || '—';
     npArtist.textContent = artist || '';
