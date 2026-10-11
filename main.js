@@ -104,6 +104,20 @@ let activeQueue = null;
 let activeQueueIndex = -1;
 let currentPlayingIsLibrary = false;
 
+// Трек, который сейчас загружен в плеер (нужен для повторного резолва при ошибке)
+let currentTrack = null;
+let retriedCurrent = false;
+
+// Заранее полученная ссылка на следующий трек очереди. При погашенном экране
+// нельзя ждать сеть в момент окончания трека: пока ничего не играет, ОС
+// усыпляет страницу, и play() без нажатия пользователя браузер блокирует.
+// Поэтому ссылку резолвим за ~30 сек до конца, а на 'ended' лишь подставляем
+// готовый src и сразу (синхронно) вызываем play().
+let prefetched = null;        // { resolveUrl, url, at }
+let prefetchInFlight = null;  // resolveUrl, который сейчас резолвится
+const PREFETCH_BEFORE_END = 30;          // сек до конца трека
+const PREFETCH_TTL = 4 * 60 * 1000;      // подписанные ссылки короткоживущие
+
 // Последние результаты поиска — чтобы не терять их при переходе на вкладку «Моя музыка» и обратно
 let lastSearchTracks = null;
 let lastSearchQuery = '';
@@ -112,13 +126,16 @@ let nextPageHref = null;
 // --- 3. СОБЫТИЯ АУДИОПЛЕЕРА ---
 audioPlayer.addEventListener('play', () => {
     npPlayPause.textContent = '⏸️';
+    if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing';
 });
 
 audioPlayer.addEventListener('pause', () => {
     npPlayPause.textContent = '▶️';
+    if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused';
 });
 
 audioPlayer.addEventListener('timeupdate', () => {
+    maybePrefetchNext();
     if (isSeeking) return;
     const duration = audioPlayer.duration;
     if (duration > 0) {
@@ -134,11 +151,101 @@ audioPlayer.addEventListener('ended', () => {
     npCurrent.textContent = '0:00';
 
     // Нон-стоп: если трек играл из очереди «Моя музыка», включаем следующий (по кругу)
-    if (activeQueue && activeQueue.length > 0) {
-        const nextIndex = (activeQueueIndex + 1) % activeQueue.length;
-        playFromList(nextIndex, activeQueue, true);
+    playNext();
+});
+
+// Если ссылка протухла (например, заранее полученная) — один раз резолвим заново
+audioPlayer.addEventListener('error', async () => {
+    if (!currentTrack || retriedCurrent) return;
+    retriedCurrent = true;
+    try {
+        audioPlayer.src = await resolveStreamUrl(currentTrack.audio);
+        await audioPlayer.play();
+    } catch (error) {
+        console.error("Повторная попытка не удалась:", error);
+        npPlayPause.textContent = '▶️';
     }
 });
+
+function nextQueueIndex() {
+    if (!activeQueue || activeQueue.length === 0) return -1;
+    return (activeQueueIndex + 1) % activeQueue.length;
+}
+
+function playNext() {
+    const nextIndex = nextQueueIndex();
+    if (nextIndex < 0) return;
+    playFromList(nextIndex, activeQueue, true);
+}
+
+function playPrevious() {
+    if (audioPlayer.currentTime > 3 || !activeQueue || activeQueue.length === 0) {
+        audioPlayer.currentTime = 0;
+        return;
+    }
+    const prevIndex = (activeQueueIndex - 1 + activeQueue.length) % activeQueue.length;
+    playFromList(prevIndex, activeQueue, true);
+}
+
+function maybePrefetchNext() {
+    const duration = audioPlayer.duration;
+    if (!duration || duration - audioPlayer.currentTime > PREFETCH_BEFORE_END) return;
+    const nextIndex = nextQueueIndex();
+    if (nextIndex < 0) return;
+    const resolveUrl = activeQueue[nextIndex].audio;
+    if (prefetchInFlight === resolveUrl) return;
+    if (prefetched && prefetched.resolveUrl === resolveUrl && Date.now() - prefetched.at < PREFETCH_TTL) return;
+
+    prefetchInFlight = resolveUrl;
+    resolveStreamUrl(resolveUrl)
+        .then(url => { prefetched = { resolveUrl, url, at: Date.now() }; })
+        .catch(error => console.warn("Не удалось заранее получить следующий трек:", error))
+        .finally(() => { if (prefetchInFlight === resolveUrl) prefetchInFlight = null; });
+}
+
+function takePrefetched(resolveUrl) {
+    if (prefetched && prefetched.resolveUrl === resolveUrl && Date.now() - prefetched.at < PREFETCH_TTL) {
+        const url = prefetched.url;
+        prefetched = null;
+        return url;
+    }
+    return null;
+}
+
+// --- 3.1 УПРАВЛЕНИЕ С ЭКРАНА БЛОКИРОВКИ / НАУШНИКОВ (Media Session API) ---
+function setupMediaSession() {
+    if (!('mediaSession' in navigator)) return;
+    const ms = navigator.mediaSession;
+    const safe = (action, handler) => {
+        try { ms.setActionHandler(action, handler); } catch { /* действие не поддерживается */ }
+    };
+    safe('play', () => audioPlayer.play());
+    safe('pause', () => audioPlayer.pause());
+    safe('seekto', (details) => {
+        if (details.seekTime != null) audioPlayer.currentTime = details.seekTime;
+    });
+}
+setupMediaSession();
+
+function updateMediaSession(name, artist, hasQueue) {
+    if (!('mediaSession' in navigator)) return;
+    const ms = navigator.mediaSession;
+    try {
+        ms.metadata = new MediaMetadata({
+            title: name || '',
+            artist: artist || '',
+            artwork: [
+                { src: 'icon-192.png', sizes: '192x192', type: 'image/png' },
+                { src: 'icon-512.png', sizes: '512x512', type: 'image/png' }
+            ]
+        });
+    } catch { /* MediaMetadata недоступен */ }
+    // Кнопки «следующий/предыдущий» показываем только для очереди «Моя музыка»
+    try {
+        ms.setActionHandler('nexttrack', hasQueue ? playNext : null);
+        ms.setActionHandler('previoustrack', hasQueue ? playPrevious : null);
+    } catch { /* действие не поддерживается */ }
+}
 
 // --- 4. УТИЛИТЫ ---
 function formatTime(seconds) {
@@ -446,7 +553,7 @@ async function playFromList(index, tracks, isLibrary) {
     activeQueueIndex = index;
 
     updateNowPlayingLikeButton(track, isLibrary);
-    await playMusic(track.audio, track.name, track.artist_name);
+    await playMusic(track.audio, track.name, track.artist_name, takePrefetched(track.audio));
 }
 
 // Синхронизирует «сердечко» внизу с треком, который сейчас играет
@@ -465,7 +572,19 @@ function updateNowPlayingLikeButton(track, isLibrary) {
 // streamResolveUrl — это адрес SoundCloud, по которому ещё нужно получить
 // подписанную ссылку на сам mp3 (она короткоживущая, поэтому резолвим лениво,
 // только когда трек реально нажали, а не заранее для всех результатов поиска)
-async function playMusic(streamResolveUrl, name, artist) {
+async function resolveStreamUrl(streamResolveUrl) {
+    const response = await fetch(`${SOUNDCLOUD_PROXY}/api/stream?url=${encodeURIComponent(streamResolveUrl)}`);
+    const data = await response.json();
+    if (!data.url) throw new Error('Пустая ссылка на поток');
+    return data.url;
+}
+
+// readyUrl — заранее полученная ссылка: тогда src и play() выставляются
+// синхронно, без ожидания сети (важно для смены трека при погашенном экране)
+async function playMusic(streamResolveUrl, name, artist, readyUrl = null) {
+    currentTrack = { audio: streamResolveUrl, name, artist };
+    retriedCurrent = false;
+
     npTitle.textContent = name || '—';
     npArtist.textContent = artist || '';
     npSeek.value = 0;
@@ -473,13 +592,10 @@ async function playMusic(streamResolveUrl, name, artist) {
     npDuration.textContent = '0:00';
     audioWrapper.classList.remove('hidden');
     npPlayPause.textContent = '⏳';
+    updateMediaSession(name, artist, !!activeQueue);
 
     try {
-        const response = await fetch(`${SOUNDCLOUD_PROXY}/api/stream?url=${encodeURIComponent(streamResolveUrl)}`);
-        const data = await response.json();
-        if (!data.url) throw new Error('Пустая ссылка на поток');
-
-        audioPlayer.src = data.url;
+        audioPlayer.src = readyUrl || await resolveStreamUrl(streamResolveUrl);
         await audioPlayer.play();
 
         console.log("Играет:", name);

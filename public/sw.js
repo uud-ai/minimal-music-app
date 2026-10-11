@@ -1,4 +1,4 @@
-const CACHE_NAME = 'music-app-shell-v5';
+const CACHE_NAME = 'music-app-shell-v6';
 
 // Только стабильные пути из public/ — хэшированные assets/index-*.js/css
 // от vite build сюда не входят (их имя меняется на каждой сборке),
@@ -28,6 +28,10 @@ self.addEventListener('install', (event) => {
 // после каждого деплоя, пока сам sw.js не поменяется.
 self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
+  // Чужие домены (аудиопоток SoundCloud, прокси, Firebase) не трогаем:
+  // пропуск mp3 с Range-запросами через воркер ломает фоновую подгрузку
+  // звука при погашенном экране.
+  if (!event.request.url.startsWith(self.location.origin)) return;
 
   event.respondWith(
     fetch(event.request)
