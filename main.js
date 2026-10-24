@@ -39,7 +39,11 @@ function loadFirebase() {
             const [
                 { initializeApp },
                 { getFirestore, collection, addDoc, getDocs, query, where, deleteDoc, doc, updateDoc },
-                { getAuth, signInAnonymously, onAuthStateChanged }
+                {
+                    getAuth, signInAnonymously, onAuthStateChanged, connectAuthEmulator, signOut,
+                    GoogleAuthProvider, linkWithPopup, signInWithPopup, signInWithCredential,
+                    EmailAuthProvider, linkWithCredential, signInWithEmailAndPassword, sendPasswordResetEmail
+                }
             ] = await Promise.all([
                 import("https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js"),
                 import("https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js"),
@@ -49,25 +53,40 @@ function loadFirebase() {
             const app = initializeApp(firebaseConfig);
             const db = getFirestore(app);
             const auth = getAuth(app);
+            auth.languageCode = 'ru'; // письма о сбросе пароля и окно Google — по-русски
+            // Для проверки входа по почте локально: localStorage.authEmulator = '1'
+            // и `npx firebase-tools emulators:start --only auth` — пароли не уходят в сеть
+            if (location.hostname === 'localhost' && localStorage.getItem('authEmulator')) {
+                connectAuthEmulator(auth, 'http://127.0.0.1:9099', { disableWarnings: true });
+            }
 
-            // Библиотека привязывается к uid устройства, чтобы каждый пользователь видел только свои треки
+            // Данные привязаны к uid: без входа — анонимный uid устройства,
+            // после входа через Google или почту — uid аккаунта (общий для всех устройств)
             let currentUser = null;
+            const authListeners = [];
             const authReady = new Promise((resolve) => {
                 onAuthStateChanged(auth, (user) => {
                     if (user) {
                         currentUser = user;
                         resolve(user);
+                        authListeners.forEach(fn => fn(user));
+                    } else {
+                        // Ни аккаунта, ни анонимной сессии — первый запуск или после «Выйти».
+                        // Анонимно входим только здесь, иначе выбили бы человека из аккаунта
+                        signInAnonymously(auth).catch((error) => {
+                            console.error("Ошибка анонимного входа:", error);
+                        });
                     }
-                });
-                signInAnonymously(auth).catch((error) => {
-                    console.error("Ошибка анонимного входа:", error);
                 });
             });
 
             return {
                 db, collection, addDoc, getDocs, query, where, deleteDoc, doc, updateDoc,
+                auth, signOut, GoogleAuthProvider, linkWithPopup, signInWithPopup, signInWithCredential,
+                EmailAuthProvider, linkWithCredential, signInWithEmailAndPassword, sendPasswordResetEmail,
                 authReady,
-                getCurrentUser: () => currentUser
+                getCurrentUser: () => auth.currentUser || currentUser,
+                onAuthChange: (fn) => authListeners.push(fn)
             };
         })();
     }
@@ -1476,3 +1495,306 @@ document.getElementById('show-stop').addEventListener('click', () => {
         renderShowNow('Остановлено');
     });
 });
+
+// --- 13. АККАУНТ: GOOGLE ИЛИ ПОЧТА (НЕОБЯЗАТЕЛЬНО) ---
+// Без входа всё работает как раньше — на анонимном uid этого устройства.
+// Вход нужен, чтобы видеть свои мероприятия, лайки и файлы на всех устройствах.
+// - Первое устройство: анонимная сессия превращается в аккаунт (link), uid прежний.
+// - Аккаунт уже есть (вход на втором устройстве): входим в него и переносим
+//   туда всё, что было на этом устройстве без аккаунта.
+const accountBtn = document.getElementById('account-btn');
+const accountSheet = document.getElementById('account-sheet');
+let accountUid = null; // чей uid сейчас показан — чтобы перерисовать экраны при смене
+
+const AUTH_ERRORS = {
+    'auth/invalid-email': 'Неверный адрес почты',
+    'auth/missing-password': 'Введите пароль',
+    'auth/weak-password': 'Пароль должен быть не короче 6 символов',
+    'auth/email-already-in-use': 'Аккаунт с этой почтой уже есть — нажмите «Войти»',
+    'auth/invalid-credential': 'Неверная почта или пароль',
+    'auth/wrong-password': 'Неверная почта или пароль',
+    'auth/user-not-found': 'Неверная почта или пароль',
+    'auth/too-many-requests': 'Слишком много попыток, попробуйте позже',
+    'auth/popup-blocked': 'Браузер заблокировал окно входа — разрешите всплывающие окна',
+    'auth/popup-closed-by-user': 'Окно входа закрыто',
+    'auth/cancelled-popup-request': 'Окно входа закрыто',
+    'auth/network-request-failed': 'Нет сети',
+    'auth/credential-already-in-use': 'Этот аккаунт уже используется',
+    'migrate-failed': 'Вы вошли, но перенести в аккаунт данные этого устройства не удалось'
+};
+
+function authErrorText(error) {
+    return AUTH_ERRORS[error.code] || `Не получилось: ${error.message}`;
+}
+
+function isSignedIn(user) {
+    return !!user && !user.isAnonymous;
+}
+
+function updateAccountButton(user) {
+    if (isSignedIn(user)) {
+        const name = user.displayName || user.email || 'Аккаунт';
+        accountBtn.textContent = name.trim()[0].toUpperCase();
+        accountBtn.classList.add('signed-in');
+        accountBtn.setAttribute('aria-label', `Аккаунт: ${name}`);
+    } else {
+        accountBtn.textContent = 'Войти';
+        accountBtn.classList.remove('signed-in');
+        accountBtn.setAttribute('aria-label', 'Войти в аккаунт');
+    }
+}
+
+// Сменился пользователь — перерисовываем открытый экран с его данными.
+// force — данные того же пользователя изменились (перенесли с устройства)
+function afterAuthChange(user, force = false) {
+    updateAccountButton(user);
+    if (accountUid === user.uid && !force) return;
+    const firstTime = accountUid === null && !force;
+    accountUid = user.uid;
+    if (firstTime) return; // первый вход при загрузке — экраны и так грузят данные после authReady
+    recentUploads.length = 0;
+    recentlyDeleted.clear();
+    currentEvent = null;
+    if (navLibrary.classList.contains('active')) loadLibrary();
+    if (navEvents.classList.contains('active')) loadEvents();
+}
+
+// Подписываемся и сразу показываем текущего — первое событие входа могло пройти до подписки
+loadFirebase().then(async (fb) => {
+    fb.onAuthChange(afterAuthChange);
+    await fb.authReady;
+    afterAuthChange(fb.getCurrentUser());
+}).catch(() => {});
+
+accountBtn.addEventListener('click', openAccountSheet);
+accountSheet.addEventListener('click', (e) => {
+    if (e.target === accountSheet) closeAccountSheet(); // клик мимо карточки
+});
+
+async function openAccountSheet() {
+    accountSheet.classList.remove('hidden');
+    renderAccountSheet(null, 'Загрузка…');
+    try {
+        const fb = await loadFirebase();
+        await fb.authReady;
+        renderAccountSheet(fb.getCurrentUser());
+    } catch (error) {
+        renderAccountSheet(null, 'Нет связи с сервером входа');
+    }
+}
+
+function closeAccountSheet() {
+    accountSheet.classList.add('hidden');
+}
+
+function renderAccountSheet(user, statusText = '') {
+    const status = el('p', { class: 'account-status', id: 'account-status' }, statusText);
+    const close = el('button', { class: 'sheet-close', 'aria-label': 'Закрыть', dataset: { action: 'close' } }, '✕');
+    let body;
+
+    if (isSignedIn(user)) {
+        const via = user.providerData.some(p => p.providerId === 'google.com') ? 'через Google' : 'по почте';
+        body = [
+            el('h2', { id: 'account-title' }, 'Аккаунт'),
+            el('p', {}, 'Вы вошли ', via, ': ', el('strong', {}, user.displayName || user.email)),
+            user.displayName && user.email ? el('p', { class: 'account-email' }, user.email) : null,
+            el('p', { class: 'account-hint' }, 'Мероприятия, «Моя музыка» и свои файлы доступны на всех устройствах, где вы вошли в этот аккаунт.'),
+            el('button', { class: 'ghost-btn wide', dataset: { action: 'sign-out' } }, 'Выйти'),
+            status
+        ];
+    } else {
+        const form = el('form', { class: 'account-form', id: 'email-form' },
+            el('input', { type: 'email', name: 'email', placeholder: 'Почта', autocomplete: 'email', required: true }),
+            el('input', { type: 'password', name: 'password', placeholder: 'Пароль (от 6 символов)', autocomplete: 'current-password', minLength: 6 }),
+            el('div', { class: 'account-row' },
+                el('button', { type: 'submit', class: 'primary-btn', dataset: { action: 'email-login' } }, 'Войти'),
+                el('button', { type: 'button', class: 'ghost-btn', dataset: { action: 'email-register' } }, 'Создать аккаунт')),
+            el('button', { type: 'button', class: 'link-btn', dataset: { action: 'reset' } }, 'Забыли пароль?'));
+        body = [
+            el('h2', { id: 'account-title' }, 'Вход'),
+            el('p', { class: 'account-hint' }, 'Сейчас вы без аккаунта — всё хранится только на этом устройстве. Войдите, чтобы видеть мероприятия и музыку на телефоне и компьютере. Можно продолжать и без входа.'),
+            el('button', { class: 'google-btn', dataset: { action: 'google' } }, el('span', { class: 'google-g' }, 'G'), 'Войти через Google'),
+            el('div', { class: 'account-divider' }, 'или по почте'),
+            form,
+            status,
+            el('button', { class: 'link-btn wide', dataset: { action: 'close' } }, 'Продолжить без входа')
+        ];
+    }
+    accountSheet.querySelector('.sheet-card').replaceChildren(close, ...body.filter(Boolean));
+}
+
+function setAccountStatus(text, isError = false) {
+    const status = document.getElementById('account-status');
+    if (!status) return;
+    status.textContent = text;
+    status.classList.toggle('error', isError);
+}
+
+accountSheet.addEventListener('submit', (e) => {
+    e.preventDefault();
+    accountAction('email-login');
+});
+
+accountSheet.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-action]');
+    // Кнопку отправки формы обработает 'submit' (он же ловит Enter в поле пароля)
+    if (!btn || (btn.type === 'submit' && btn.form)) return;
+    accountAction(btn.dataset.action);
+});
+
+async function accountAction(action) {
+    if (action === 'close') {
+        closeAccountSheet();
+        return;
+    }
+    const form = document.getElementById('email-form');
+    const email = form ? form.elements.email.value.trim() : '';
+    const password = form ? form.elements.password.value : '';
+    const buttons = accountSheet.querySelectorAll('button');
+    buttons.forEach(b => { b.disabled = true; });
+
+    let fb = null;
+    try {
+        fb = await loadFirebase();
+        await fb.authReady;
+        if (action === 'google') {
+            setAccountStatus('Открываем окно Google…');
+            await signInWithGoogle(fb);
+        } else if (action === 'email-login') {
+            if (!email || !password) throw { code: !email ? 'auth/invalid-email' : 'auth/missing-password' };
+            setAccountStatus('Входим…');
+            await switchAccount(fb, () => fb.signInWithEmailAndPassword(fb.auth, email, password));
+        } else if (action === 'email-register') {
+            if (!email || !password) throw { code: !email ? 'auth/invalid-email' : 'auth/missing-password' };
+            setAccountStatus('Создаём аккаунт…');
+            // Анонимную сессию превращаем в аккаунт — данные этого устройства остаются на месте
+            await fb.linkWithCredential(fb.getCurrentUser(), fb.EmailAuthProvider.credential(email, password));
+            afterAuthChange(fb.getCurrentUser());
+        } else if (action === 'reset') {
+            if (!email) throw { code: 'auth/invalid-email' };
+            await fb.sendPasswordResetEmail(fb.auth, email);
+            renderAccountSheet(fb.getCurrentUser());
+            document.getElementById('email-form').elements.email.value = email;
+            setAccountStatus(`Если аккаунт с почтой ${email} есть, на неё пришло письмо со ссылкой для нового пароля. Проверьте и папку «Спам».`);
+            return;
+        } else if (action === 'sign-out') {
+            if (!confirm('Выйти из аккаунта? На этом устройстве откроется пустое приложение без аккаунта; ваши данные останутся в аккаунте.')) return;
+            await fb.signOut(fb.auth); // onAuthStateChanged сам создаст новую анонимную сессию
+            await new Promise(resolve => fb.onAuthChange(resolve));
+        }
+        renderAccountSheet(fb.getCurrentUser(), isSignedIn(fb.getCurrentUser()) ? '✓ Готово' : 'Вы вышли из аккаунта');
+    } catch (error) {
+        console.warn("Ошибка входа:", error);
+        if (fb && isSignedIn(fb.getCurrentUser())) renderAccountSheet(fb.getCurrentUser());
+        setAccountStatus(authErrorText(error), true);
+    } finally {
+        accountSheet.querySelectorAll('button').forEach(b => { b.disabled = false; });
+    }
+}
+
+async function signInWithGoogle(fb) {
+    const provider = new fb.GoogleAuthProvider();
+    provider.setCustomParameters({ prompt: 'select_account' });
+    const user = fb.getCurrentUser();
+    if (!user.isAnonymous) {
+        await fb.signInWithPopup(fb.auth, provider);
+        return;
+    }
+    try {
+        // Первое устройство: анонимная сессия становится аккаунтом, uid и данные прежние
+        await fb.linkWithPopup(user, provider);
+        afterAuthChange(fb.getCurrentUser());
+    } catch (error) {
+        if (error.code !== 'auth/credential-already-in-use') throw error;
+        // Аккаунт уже есть — входим в него и переносим данные этого устройства
+        const credential = fb.GoogleAuthProvider.credentialFromError(error);
+        await switchAccount(fb, () => fb.signInWithCredential(fb.auth, credential));
+    }
+}
+
+// Вход в существующий аккаунт с переносом данных анонимной сессии этого устройства
+async function switchAccount(fb, signIn) {
+    const anon = fb.getCurrentUser();
+    let saved = null;
+    let readFailed = false;
+    if (anon && anon.isAnonymous) {
+        try {
+            const byUid = (name) => fb.query(fb.collection(fb.db, name), fb.where("uid", "==", anon.uid));
+            const [liked, evs] = await Promise.all([fb.getDocs(byUid("liked_tracks")), fb.getDocs(byUid("events"))]);
+            saved = {
+                liked: liked.docs.map(d => d.data()),
+                events: evs.docs.map(d => ({ id: d.id, ...d.data() })),
+                token: await anon.getIdToken()
+            };
+        } catch (error) {
+            // Не смогли прочитать данные устройства — входить всё равно даём, но предупреждаем
+            console.error("Не удалось прочитать данные устройства для переноса:", error);
+            readFailed = true;
+        }
+    }
+
+    await signIn();
+    const user = fb.getCurrentUser();
+    if (saved) {
+        setAccountStatus('Переносим данные этого устройства в аккаунт…');
+        await migrateAnonData(fb, user, saved);
+    }
+    afterAuthChange(user, true);
+    if (readFailed) throw { code: 'migrate-failed' };
+}
+
+async function migrateAnonData(fb, user, saved) {
+    // 1. Файлы: воркер перекладывает их под uid аккаунта и возвращает новые ключи
+    const keyMap = new Map();
+    try {
+        const { moved } = await filesApi('/migrate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ fromToken: saved.token })
+        });
+        moved.forEach(({ from, to }) => keyMap.set(from, to));
+        await moveCachedFiles(keyMap);
+    } catch (error) {
+        console.error("Не удалось перенести файлы:", error);
+    }
+    const remapTrack = (track) => {
+        const to = track.fileKey && keyMap.get(track.fileKey);
+        return to ? { ...track, fileKey: to, audio: `${FILES_API}/files/${encodeFileKey(to)}` } : track;
+    };
+
+    // 2. Лайки — без дублей с теми, что уже есть в аккаунте
+    const existing = await fb.getDocs(fb.query(fb.collection(fb.db, "liked_tracks"), fb.where("uid", "==", user.uid)));
+    const known = new Set(existing.docs.map(d => d.data().audioUrl));
+    for (const like of saved.liked) {
+        if (known.has(like.audioUrl)) continue;
+        known.add(like.audioUrl);
+        await fb.addDoc(fb.collection(fb.db, "liked_tracks"), { ...like, uid: user.uid });
+    }
+
+    // 3. Мероприятия — копией под аккаунт; скачанные для офлайна копии переименовываем
+    const offline = getOfflineEvents();
+    for (const ev of saved.events) {
+        const { id, ...data } = ev;
+        const blocks = data.blocks.map(b => ({ ...b, tracks: b.tracks.map(remapTrack) }));
+        const ref = await fb.addDoc(fb.collection(fb.db, "events"), { ...data, blocks, uid: user.uid });
+        if (offline[id]) {
+            removeOfflineEvent(id);
+            storeOfflineEvent({ id: ref.id, ...data, blocks });
+        }
+    }
+    // Анонимные оригиналы остаются в базе — удалить их может только их владелец,
+    // а он уже вышел. На работу приложения это не влияет.
+}
+
+// Скачанные для офлайна файлы переезжают на новые адреса — переносим и копии в кэше
+async function moveCachedFiles(keyMap) {
+    if (!('caches' in window) || keyMap.size === 0) return;
+    const cache = await caches.open(FILES_CACHE);
+    for (const [from, to] of keyMap) {
+        const fromUrl = `${FILES_API}/files/${encodeFileKey(from)}`;
+        const cached = await cache.match(fromUrl, { ignoreVary: true });
+        if (!cached) continue;
+        await cache.put(`${FILES_API}/files/${encodeFileKey(to)}`, cached);
+        await cache.delete(fromUrl, { ignoreVary: true });
+    }
+}

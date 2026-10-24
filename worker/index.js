@@ -6,6 +6,7 @@
 // GET    /list               — файлы текущего пользователя
 // PUT    /upload?name=<имя>  — загрузка, тело запроса — сам файл
 // DELETE /files/<key>        — удаление своего файла
+// POST   /migrate            — перенос файлов анонимной сессии в аккаунт (тело: { fromToken })
 //
 // Загрузка, список и удаление требуют Firebase ID-токен (тот же анонимный вход,
 // что и у «Моей музыки»): каждый пользователь видит и удаляет только файлы под
@@ -23,7 +24,7 @@ const JWKS_URL = "https://www.googleapis.com/service_accounts/v1/jwk/securetoken
 function corsHeaders(request) {
     const origin = request.headers.get("Origin");
     const headers = {
-        "Access-Control-Allow-Methods": "GET, PUT, DELETE, OPTIONS",
+        "Access-Control-Allow-Methods": "GET, PUT, POST, DELETE, OPTIONS",
         "Access-Control-Allow-Headers": "Authorization, Content-Type, Range",
         "Access-Control-Expose-Headers": "Content-Length, Content-Range, Accept-Ranges",
         "Access-Control-Max-Age": "86400",
@@ -57,11 +58,16 @@ function base64UrlDecode(str) {
     return Uint8Array.from(atob(base64), c => c.charCodeAt(0));
 }
 
-// Возвращает uid пользователя или null, если токен невалиден
+// uid из заголовка Authorization или null, если токен невалиден
 async function verifyFirebaseToken(request) {
     const auth = request.headers.get("Authorization") || "";
-    const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
-    const parts = token.split(".");
+    const payload = await verifyToken(auth.startsWith("Bearer ") ? auth.slice(7) : "");
+    return payload ? payload.sub : null;
+}
+
+// Проверенное содержимое токена или null
+async function verifyToken(token) {
+    const parts = (token || "").split(".");
     if (parts.length !== 3) return null;
 
     try {
@@ -83,7 +89,7 @@ async function verifyFirebaseToken(request) {
         if (payload.iss !== `https://securetoken.google.com/${FIREBASE_PROJECT_ID}`) return null;
         if (!(payload.exp > now) || !(payload.iat <= now + 60)) return null;
         if (typeof payload.sub !== "string" || !payload.sub) return null;
-        return payload.sub;
+        return payload;
     } catch {
         return null;
     }
@@ -181,6 +187,35 @@ async function handleList(request, env, uid) {
     return json(request, { files });
 }
 
+// Вход в аккаунт на устройстве, где уже были файлы без аккаунта: переносим их
+// под uid аккаунта. Источник — только анонимная сессия (чтобы чужим токеном
+// аккаунта нельзя было забрать его файлы), и обладание её токеном подтверждает,
+// что это то же устройство.
+async function handleMigrate(request, env, toUid) {
+    const { fromToken } = await request.json().catch(() => ({}));
+    const from = await verifyToken(fromToken);
+    if (!from) return json(request, { error: "Неверный токен источника" }, 400);
+    if (from.firebase?.sign_in_provider !== "anonymous") return json(request, { error: "Переносить можно только из сессии без аккаунта" }, 403);
+    if (from.sub === toUid) return json(request, { moved: [] });
+
+    const moved = [];
+    let cursor;
+    do {
+        const page = await env.FILES.list({ prefix: `${from.sub}/`, cursor });
+        for (const item of page.keys) {
+            // Потоком, без буферизации — на бесплатном тарифе мало CPU-времени
+            const { value, metadata } = await env.FILES.getWithMetadata(item.name, { type: "stream" });
+            if (value === null) continue;
+            const to = `${toUid}/${item.name.slice(from.sub.length + 1)}`;
+            await env.FILES.put(to, value, { metadata });
+            await env.FILES.delete(item.name);
+            moved.push({ from: item.name, to });
+        }
+        cursor = page.list_complete ? undefined : page.cursor;
+    } while (cursor);
+    return json(request, { moved });
+}
+
 export default {
     async fetch(request, env) {
         if (request.method === "OPTIONS") {
@@ -198,6 +233,7 @@ export default {
 
         if (request.method === "PUT" && url.pathname === "/upload") return handleUpload(request, env, url, uid);
         if (request.method === "GET" && url.pathname === "/list") return handleList(request, env, uid);
+        if (request.method === "POST" && url.pathname === "/migrate") return handleMigrate(request, env, uid);
         if (request.method === "DELETE" && key) {
             if (!key.startsWith(`${uid}/`)) return json(request, { error: "Чужой файл" }, 403);
             await env.FILES.delete(key);

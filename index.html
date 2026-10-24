@@ -21,6 +21,7 @@
     <div id="app">
         <header>
             <h1>My Music</h1>
+            <button id="account-btn" aria-label="Войти в аккаунт">Войти</button>
             <div class="search-container" id="search-container">
                 <input type="text" id="search-input" placeholder="Поиск на YouTube...">
             </div>
@@ -86,6 +87,11 @@
                 <button id="show-next">Следующий блок ⏭</button>
             </div>
             <ol id="show-blocks"></ol>
+        </div>
+
+        <!-- Вход необязателен: без него всё работает на этом устройстве -->
+        <div id="account-sheet" class="hidden">
+            <div class="sheet-card" role="dialog" aria-modal="true" aria-labelledby="account-title"></div>
         </div>
 
         <nav class="bottom-nav">
