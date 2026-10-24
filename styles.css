@@ -807,3 +807,18 @@ body.show-open {
     color: var(--gray);
     text-align: center;
 }
+
+/* --- 11. ОФЛАЙН --- */
+.offline-status {
+    font-size: 0.8rem;
+    color: var(--gray);
+    text-align: center;
+}
+
+.offline-note {
+    padding: 8px 12px;
+    border-radius: 8px;
+    background: var(--light-gold);
+    font-size: 0.85rem;
+    text-align: center;
+}

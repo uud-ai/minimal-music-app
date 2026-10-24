@@ -853,7 +853,12 @@ function playMusic(track) {
         filePlayer.play().catch(error => console.warn("Не удалось запустить файл:", error));
     } else {
         if (!ytPlayer || !ytPlayer.loadVideoById) {
+            // Без сети скрипт YouTube не загрузится вовсе — пропускаем трек, как недоступный
             console.warn("Плеер YouTube еще не загрузился.");
+            currentSource = 'youtube';
+            filePlayer.pause();
+            renderShowNow('YouTube без интернета недоступен');
+            onPlaybackError();
             return;
         }
         currentSource = 'youtube';
@@ -934,23 +939,139 @@ function el(tag, props = {}, ...children) {
     return node;
 }
 
+let eventsOffline = false; // список показан из скачанных копий, сети нет
+
 async function loadEvents() {
     currentEvent = null;
     eventsView.replaceChildren(el('p', { class: 'status' }, 'Загружаем мероприятия...'));
     try {
-        const fb = await loadFirebase();
-        await fb.authReady;
-        const q = fb.query(fb.collection(fb.db, "events"), fb.where("uid", "==", fb.getCurrentUser().uid));
-        const snapshot = await fb.getDocs(q);
-        events = [];
-        snapshot.forEach(docSnap => events.push({ id: docSnap.id, ...docSnap.data() }));
-        // Ближайшие по дате сверху, без даты — в конце
-        events.sort((a, b) => (a.date || '9999').localeCompare(b.date || '9999'));
-        renderEventsList();
+        // На площадке сеть бывает «есть, но не грузит» — не ждём её дольше 8 секунд
+        const loaded = await withTimeout((async () => {
+            const fb = await loadFirebase();
+            await fb.authReady;
+            const q = fb.query(fb.collection(fb.db, "events"), fb.where("uid", "==", fb.getCurrentUser().uid));
+            const snapshot = await fb.getDocs(q);
+            // Без сети Firestore не падает, а молча отдаёт пустой локальный кэш —
+            // считаем это офлайном и показываем скачанные копии
+            if (snapshot.metadata.fromCache) throw new Error('Firestore офлайн');
+            const list = [];
+            snapshot.forEach(docSnap => list.push({ id: docSnap.id, ...docSnap.data() }));
+            return list;
+        })(), 8000);
+        events = loaded;
+        eventsOffline = false;
+        // Скачанные копии держим свежими — вдруг сценарий меняли на другой вкладке
+        for (const ev of events) if (getOfflineEvents()[ev.id]) storeOfflineEvent(ev);
     } catch (error) {
-        console.error("Ошибка загрузки мероприятий:", error);
-        eventsView.replaceChildren(el('p', { class: 'status' }, 'Не удалось загрузить мероприятия.'));
+        console.warn("Мероприятия из сети недоступны, показываем скачанные:", error);
+        events = Object.values(getOfflineEvents());
+        eventsOffline = true;
+        if (events.length === 0) {
+            eventsView.replaceChildren(el('p', { class: 'status' }, 'Нет сети, а скачанных мероприятий нет.'));
+            return;
+        }
     }
+    // Ближайшие по дате сверху, без даты — в конце
+    events.sort((a, b) => (a.date || '9999').localeCompare(b.date || '9999'));
+    renderEventsList();
+}
+
+function withTimeout(promise, ms) {
+    return Promise.race([
+        promise,
+        new Promise((_, reject) => setTimeout(() => reject(new Error(`Нет ответа за ${ms / 1000} с`)), ms))
+    ]);
+}
+
+// --- 11.1 ОФЛАЙН: скачанные мероприятия и файлы ---
+// Копия мероприятия — в localStorage (её хватает, чтобы открыть сценарий без сети),
+// сами аудиофайлы — в Cache Storage «music-files», откуда их отдаёт service worker
+const OFFLINE_EVENTS_KEY = 'offline-events';
+const FILES_CACHE = 'music-files';
+
+function getOfflineEvents() {
+    try {
+        return JSON.parse(localStorage.getItem(OFFLINE_EVENTS_KEY)) || {};
+    } catch {
+        return {};
+    }
+}
+
+function storeOfflineEvent(ev) {
+    const all = getOfflineEvents();
+    all[ev.id] = { id: ev.id, title: ev.title, type: ev.type, date: ev.date, blocks: ev.blocks };
+    try {
+        localStorage.setItem(OFFLINE_EVENTS_KEY, JSON.stringify(all));
+    } catch (error) {
+        console.warn("Не удалось сохранить копию мероприятия:", error);
+    }
+}
+
+function removeOfflineEvent(id) {
+    const all = getOfflineEvents();
+    delete all[id];
+    try { localStorage.setItem(OFFLINE_EVENTS_KEY, JSON.stringify(all)); } catch { /* не критично */ }
+}
+
+function eventFileTracks(ev) {
+    const seen = new Set();
+    return ev.blocks.flatMap(b => b.tracks)
+        .filter(t => t.source === 'file' && !seen.has(t.audio) && seen.add(t.audio));
+}
+
+async function countCachedFiles(ev) {
+    const files = eventFileTracks(ev);
+    if (!('caches' in window) || files.length === 0) return { cached: 0, total: files.length };
+    const cache = await caches.open(FILES_CACHE);
+    const hits = await Promise.all(files.map(t => cache.match(t.audio, { ignoreVary: true })));
+    return { cached: hits.filter(Boolean).length, total: files.length };
+}
+
+async function downloadEventForOffline(button) {
+    const ev = currentEvent;
+    if (!('caches' in window)) {
+        alert('Этот браузер не умеет сохранять файлы для офлайна.');
+        return;
+    }
+    // Просим браузер не вычищать скачанное при нехватке места
+    if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
+    storeOfflineEvent(ev);
+
+    const files = eventFileTracks(ev);
+    const cache = await caches.open(FILES_CACHE);
+    let done = 0;
+    let failed = 0;
+    button.disabled = true;
+    for (const track of files) {
+        button.textContent = `⬇ Скачиваем ${done + failed + 1} из ${files.length}…`;
+        try {
+            if (!(await cache.match(track.audio, { ignoreVary: true }))) {
+                const response = await fetch(track.audio);
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                await cache.put(track.audio, response);
+            }
+            done++;
+        } catch (error) {
+            failed++;
+            console.error("Не удалось скачать:", track.name, error);
+        }
+    }
+    button.disabled = false;
+    if (currentEvent === ev && !eventsView.classList.contains('hidden')) renderEventDetail();
+    if (failed) alert(`Не скачались ${failed} из ${files.length} файлов — попробуйте ещё раз при хорошей сети.`);
+}
+
+// Подпись под кнопкой: сколько своих файлов уже на устройстве и что с YouTube
+async function renderOfflineStatus(ev, node) {
+    const { cached, total } = await countCachedFiles(ev);
+    const ytCount = ev.blocks.flatMap(b => b.tracks).filter(t => t.source !== 'file').length;
+    const saved = !!getOfflineEvents()[ev.id];
+    const parts = [];
+    if (total) parts.push(`своих файлов на устройстве: ${cached} из ${total}`);
+    else parts.push('своих файлов в сценарии нет');
+    if (ytCount) parts.push(`треки YouTube (${ytCount}) без интернета не играют`);
+    if (saved && cached === total) parts.unshift('✓ готово к работе без сети');
+    node.textContent = parts.join(' · ');
 }
 
 function renderEventsList() {
@@ -1009,11 +1130,12 @@ function openEvent(ev) {
 
 // Сохраняем мероприятие целиком — блоков немного, а так проще не разъехаться
 async function saveEvent() {
-    if (!currentEvent) return;
+    if (!currentEvent || eventsOffline) return; // без сети работаем по копии, не сохраняем
     const { id, title, date, type, blocks } = currentEvent;
     try {
         const fb = await loadFirebase();
         await fb.updateDoc(fb.doc(fb.db, "events", id), { title, date, type, blocks });
+        if (getOfflineEvents()[id]) storeOfflineEvent(currentEvent);
     } catch (error) {
         console.error("Ошибка сохранения мероприятия:", error);
         alert("Не удалось сохранить изменения.");
@@ -1023,6 +1145,7 @@ async function saveEvent() {
 function renderEventDetail() {
     const ev = currentEvent;
     const info = eventTypeInfo(ev.type);
+    const offlineStatus = el('p', { class: 'offline-status' }, '…');
 
     const header = el('div', { class: 'event-header' },
         el('button', { class: 'link-btn', dataset: { action: 'back' } }, '← Все мероприятия'),
@@ -1032,7 +1155,11 @@ function renderEventDetail() {
             el('input', { type: 'date', value: ev.date || '', dataset: { field: 'date' } })),
         el('div', { class: 'event-actions' },
             el('button', { class: 'primary-btn', dataset: { action: 'show' } }, '🎬 Режим ведущего'),
-            el('button', { class: 'ghost-btn', dataset: { action: 'delete-event' } }, '🗑 Удалить')));
+            el('button', { class: 'ghost-btn', dataset: { action: 'delete-event' } }, '🗑 Удалить')),
+        el('button', { class: 'ghost-btn', dataset: { action: 'download' } }, '⬇ Скачать для офлайна'),
+        offlineStatus,
+        eventsOffline ? el('p', { class: 'offline-note' }, 'Нет сети — открыта скачанная копия, изменения не сохранятся') : null);
+    renderOfflineStatus(ev, offlineStatus);
 
     const blocks = ev.blocks.map((block, i) => {
         const isPlaying = playingBlock && playingBlock.eventId === ev.id && playingBlock.blockId === block.id;
@@ -1080,6 +1207,9 @@ eventsView.addEventListener('click', (e) => {
             break;
         case 'show':
             openShowMode();
+            break;
+        case 'download':
+            downloadEventForOffline(target);
             break;
         case 'delete-event':
             if (confirm(`Удалить «${currentEvent.title}»?`)) deleteEvent();
@@ -1142,6 +1272,7 @@ async function deleteEvent() {
     try {
         const fb = await loadFirebase();
         await fb.deleteDoc(fb.doc(fb.db, "events", id));
+        removeOfflineEvent(id);
         if (playingBlock && playingBlock.eventId === id) playingBlock = null;
         loadEvents();
     } catch (error) {

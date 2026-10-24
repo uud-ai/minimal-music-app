@@ -1,4 +1,10 @@
-const CACHE_NAME = 'music-app-shell-v7';
+const CACHE_NAME = 'music-app-shell-v8';
+
+// Свои аудиофайлы, скачанные кнопкой «Скачать для офлайна» в мероприятии.
+// Кладёт их туда сама страница (main.js), воркер только отдаёт. Имя без версии:
+// при обновлении оболочки этот кэш не удаляется, иначе пропадала бы музыка.
+const FILES_CACHE = 'music-files';
+const FILES_ORIGIN = 'https://minimal-music-files.uudnik.workers.dev';
 
 // Только стабильные пути из public/ — хэшированные assets/index-*.js/css
 // от vite build сюда не входят (их имя меняется на каждой сборке),
@@ -29,6 +35,10 @@ self.addEventListener('install', (event) => {
 // после каждого деплоя, пока сам sw.js не поменяется.
 self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
+  if (event.request.url.startsWith(`${FILES_ORIGIN}/files/`)) {
+    event.respondWith(serveFile(event.request));
+    return;
+  }
   // Чужие домены (YouTube, Firebase, шрифты) не трогаем: их запросы
   // должны идти напрямую в сеть, а не через кэш service worker.
   if (!event.request.url.startsWith(self.location.origin)) return;
@@ -52,7 +62,7 @@ self.addEventListener('activate', (event) => {
     caches.keys().then((cacheNames) => {
       return Promise.all(
         cacheNames.map((cacheName) => {
-          if (cacheName !== CACHE_NAME) {
+          if (cacheName !== CACHE_NAME && cacheName !== FILES_CACHE) {
             console.log('Удаление старого кэша:', cacheName);
             return caches.delete(cacheName);
           }
@@ -61,3 +71,39 @@ self.addEventListener('activate', (event) => {
     })
   );
 });
+
+// Аудиофайл: из кэша, если скачан, иначе из сети. <audio> почти всегда шлёт
+// Range (а Safari без ответа 206 вообще не играет) — режем сохранённый файл сами
+async function serveFile(request) {
+  const cache = await caches.open(FILES_CACHE);
+  // ignoreVary: воркер отвечает с «Vary: Origin», а <audio> шлёт запрос без Origin
+  const cached = await cache.match(request.url, { ignoreVary: true });
+  if (!cached) return fetch(request);
+
+  const range = request.headers.get('Range');
+  if (!range) return cached;
+
+  const blob = await cached.blob();
+  const size = blob.size;
+  const match = /^bytes=(\d*)-(\d*)$/.exec(range);
+  let start = 0;
+  let end = size - 1;
+  if (match && match[1] !== '') {
+    start = Number(match[1]);
+    if (match[2] !== '') end = Math.min(Number(match[2]), size - 1);
+  } else if (match && match[2] !== '') {
+    start = Math.max(0, size - Number(match[2]));
+  }
+  if (start > end || start >= size) {
+    return new Response(null, { status: 416, headers: { 'Content-Range': `bytes */${size}` } });
+  }
+  return new Response(blob.slice(start, end + 1), {
+    status: 206,
+    headers: {
+      'Content-Type': cached.headers.get('Content-Type') || 'audio/mpeg',
+      'Content-Range': `bytes ${start}-${end}/${size}`,
+      'Content-Length': String(end - start + 1),
+      'Accept-Ranges': 'bytes'
+    }
+  });
+}
