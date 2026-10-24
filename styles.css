@@ -85,6 +85,12 @@ header h1 {
     background-color: var(--light-gold);
 }
 
+/* Трек, который YouTube запретил встраивать — плеер его пропускает */
+.track-card.unavailable .track-info {
+    opacity: 0.4;
+    text-decoration: line-through;
+}
+
 .track-info {
     display: flex;
     flex-direction: column;

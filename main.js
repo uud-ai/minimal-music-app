@@ -18,7 +18,7 @@ window.addEventListener('load', () => {
     }
 });
 
-// --- 2. КОНФИГУРАЦИЯ FIREBASE И SOUNDCLOUD ---
+// --- 2. КОНФИГУРАЦИЯ FIREBASE И YOUTUBE ---
 const firebaseConfig = {
     apiKey: "AIzaSyDCYcwNHXw0Vv3OJEAPl1qgi03H-Y_qfBU",
     authDomain: "minimal-music-app-e3bd3.firebaseapp.com",
@@ -74,9 +74,8 @@ function loadFirebase() {
     return firebasePromise;
 }
 
-// SoundCloud напрямую из браузера недоступен (не отдаёт CORS сторонним доменам),
-// поэтому поиск и резолв ссылок на аудио идут через свой прокси-воркер на Cloudflare.
-const SOUNDCLOUD_PROXY = "https://minimal-music-soundcloud-proxy.uudnik.workers.dev";
+// Константы приложения
+const YOUTUBE_API_KEY = "AIzaSyBgrlvnKuTsj4HSitEUT3Ae4yJLbNozfd8";
 
 const searchInput = document.getElementById('search-input');
 const trackList = document.getElementById('track-list');
@@ -86,7 +85,6 @@ const navLibrary = document.getElementById('nav-library');
 const loadMoreBtn = document.getElementById('load-more-btn');
 
 const audioWrapper = document.getElementById('audio-wrapper');
-const audioPlayer = document.getElementById('audio-player');
 const npTitle = document.getElementById('np-title');
 const npArtist = document.getElementById('np-artist');
 const npPlayPause = document.getElementById('np-playpause');
@@ -95,6 +93,9 @@ const npSeek = document.getElementById('np-seek');
 const npCurrent = document.getElementById('np-current');
 const npDuration = document.getElementById('np-duration');
 
+// --- 3. ЗАГРУЗКА YOUTUBE ПЛЕЕРА ---
+let ytPlayer;
+let progressInterval = null;
 let isSeeking = false;
 
 // Очередь нон-стоп воспроизведения (заполняется только при проигрывании из «Моя музыка»)
@@ -102,127 +103,105 @@ let currentTracks = [];
 let currentIsLibrary = false;
 let activeQueue = null;
 let activeQueueIndex = -1;
+let activeQueueIsLibrary = false;
 let currentPlayingIsLibrary = false;
-
-// Трек, который сейчас загружен в плеер (нужен для повторного резолва при ошибке)
-let currentTrack = null;
-let retriedCurrent = false;
-
-// Заранее полученная ссылка на следующий трек очереди. При погашенном экране
-// нельзя ждать сеть в момент окончания трека: пока ничего не играет, ОС
-// усыпляет страницу, и play() без нажатия пользователя браузер блокирует.
-// Поэтому ссылку резолвим за ~30 сек до конца, а на 'ended' лишь подставляем
-// готовый src и сразу (синхронно) вызываем play().
-let prefetched = null;        // { resolveUrl, url, at }
-let prefetchInFlight = null;  // resolveUrl, который сейчас резолвится
-const PREFETCH_BEFORE_END = 30;          // сек до конца трека
-const PREFETCH_TTL = 4 * 60 * 1000;      // подписанные ссылки короткоживущие
-const EARLY_SWITCH_SEC = 0.6;            // переключение без паузы (для iOS)
-let earlySwitched = false;               // уже переключились досрочно на этом треке
 
 // Последние результаты поиска — чтобы не терять их при переходе на вкладку «Моя музыка» и обратно
 let lastSearchTracks = null;
 let lastSearchQuery = '';
-let nextPageHref = null;
+let nextPageToken = null;
 
-// --- 3. СОБЫТИЯ АУДИОПЛЕЕРА ---
-audioPlayer.addEventListener('play', () => {
-    npPlayPause.textContent = '⏸️';
-    if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing';
-});
+// Асинхронно загружаем скрипт YouTube IFrame API
+const tag = document.createElement('script');
+tag.src = "https://www.youtube.com/iframe_api";
+const firstScriptTag = document.getElementsByTagName('script')[0];
+firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
 
-audioPlayer.addEventListener('pause', () => {
-    npPlayPause.textContent = '▶️';
-    if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused';
-});
+// Эта функция автоматически вызовется, когда скрипт YouTube загрузится
+window.onYouTubeIframeAPIReady = function() {
+    ytPlayer = new YT.Player('yt-player', {
+        // 1x1, а не 0x0 — начиная с 2020-х YouTube считает нулевой по размеру
+        // плеер невидимым и отказывается автозапускать в нём видео
+        height: '1',
+        width: '1',
+        videoId: '',
+        playerVars: {
+            'autoplay': 0,
+            'controls': 0,
+            'playsinline': 1 // Важно для работы на смартфонах
+        },
+        events: {
+            'onStateChange': onPlayerStateChange,
+            'onError': onPlayerError
+        }
+    });
+};
 
-audioPlayer.addEventListener('timeupdate', () => {
-    maybePrefetchNext();
-    if (isSeeking) return;
-    const duration = audioPlayer.duration;
-    if (duration > 0) {
-        npSeek.value = (audioPlayer.currentTime / duration) * 100;
-        npDuration.textContent = formatTime(duration);
-    }
-    npCurrent.textContent = formatTime(audioPlayer.currentTime);
-});
-
-audioPlayer.addEventListener('ended', () => {
-    npPlayPause.textContent = '▶️';
-    npSeek.value = 0;
-    npCurrent.textContent = '0:00';
-
-    // Нон-стоп: если трек играл из очереди «Моя музыка», включаем следующий (по кругу)
-    playNext();
-});
-
-// Если ссылка протухла (например, заранее полученная) — один раз резолвим заново
-audioPlayer.addEventListener('error', async () => {
-    if (!currentTrack || retriedCurrent) return;
-    retriedCurrent = true;
-    try {
-        audioPlayer.src = await resolveStreamUrl(currentTrack.audio);
-        await audioPlayer.play();
-    } catch (error) {
-        console.error("Повторная попытка не удалась:", error);
+function onPlayerStateChange(event) {
+    if (event.data === YT.PlayerState.PLAYING) {
+        // Плеер запускался приглушённым, чтобы обойти блокировку автовоспроизведения
+        // со звуком в браузере — как только видео реально заиграло, возвращаем звук
+        if (ytPlayer.isMuted && ytPlayer.isMuted()) {
+            ytPlayer.unMute();
+        }
+        npPlayPause.textContent = '⏸️';
+        startProgressLoop();
+        if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing';
+    } else if (event.data === YT.PlayerState.PAUSED) {
         npPlayPause.textContent = '▶️';
-    }
-});
+        stopProgressLoop();
+        if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused';
+    } else if (event.data === YT.PlayerState.ENDED) {
+        stopProgressLoop();
+        npSeek.value = 0;
+        npCurrent.textContent = '0:00';
 
-function nextQueueIndex() {
-    if (!activeQueue || activeQueue.length === 0) return -1;
-    return (activeQueueIndex + 1) % activeQueue.length;
+        // Нон-стоп: сразу включаем следующий трек из того же списка (по кругу)
+        if (!playNext()) npPlayPause.textContent = '▶️';
+    }
 }
 
+// Многие официальные треки лейблов (каналы «… - Topic», «Official Audio») запрещено
+// встраивать на сторонние сайты — плеер отдаёт ошибку 150/101 и молча стоит.
+// Помечаем такой трек недоступным и без паузы переходим к следующему
+function onPlayerError(event) {
+    console.warn("YouTube не может проиграть трек, код ошибки:", event.data);
+    const track = activeQueue && activeQueue[activeQueueIndex];
+    if (track) {
+        track.unavailable = true;
+        if (activeQueue === currentTracks) {
+            const card = trackList.querySelectorAll('.track-card')[activeQueueIndex];
+            if (card) card.classList.add('unavailable');
+        }
+    }
+    if (!playNext()) {
+        stopProgressLoop();
+        npPlayPause.textContent = '▶️';
+        npTitle.textContent = 'Трек недоступен для встраивания';
+    }
+}
+
+// Включает следующий проигрываемый трек очереди; false — если такого нет
 function playNext() {
-    const nextIndex = nextQueueIndex();
-    if (nextIndex < 0) return;
-    playFromList(nextIndex, activeQueue, true);
+    if (!activeQueue || activeQueue.length === 0) return false;
+    for (let step = 1; step <= activeQueue.length; step++) {
+        const nextIndex = (activeQueueIndex + step) % activeQueue.length;
+        if (!activeQueue[nextIndex].unavailable) {
+            playFromList(nextIndex, activeQueue, activeQueueIsLibrary);
+            return true;
+        }
+    }
+    return false;
 }
 
 function playPrevious() {
-    if (audioPlayer.currentTime > 3 || !activeQueue || activeQueue.length === 0) {
-        audioPlayer.currentTime = 0;
+    if (!ytPlayer || !activeQueue || activeQueue.length === 0) return;
+    if (ytPlayer.getCurrentTime() > 3) {
+        ytPlayer.seekTo(0, true);
         return;
     }
     const prevIndex = (activeQueueIndex - 1 + activeQueue.length) % activeQueue.length;
-    playFromList(prevIndex, activeQueue, true);
-}
-
-function maybePrefetchNext() {
-    const duration = audioPlayer.duration;
-    if (!duration || duration - audioPlayer.currentTime > PREFETCH_BEFORE_END) return;
-    const nextIndex = nextQueueIndex();
-    if (nextIndex < 0) return;
-    const resolveUrl = activeQueue[nextIndex].audio;
-
-    // iOS: если следующая ссылка уже готова, переключаемся чуть раньше конца,
-    // чтобы между треками не было тишины — иначе iOS при заблокированном
-    // экране может заморозить страницу ещё до события 'ended'
-    const remaining = duration - audioPlayer.currentTime;
-    if (remaining < EARLY_SWITCH_SEC && !earlySwitched && prefetched && prefetched.resolveUrl === resolveUrl) {
-        earlySwitched = true;
-        playNext();
-        return;
-    }
-
-    if (prefetchInFlight === resolveUrl) return;
-    if (prefetched && prefetched.resolveUrl === resolveUrl && Date.now() - prefetched.at < PREFETCH_TTL) return;
-
-    prefetchInFlight = resolveUrl;
-    resolveStreamUrl(resolveUrl)
-        .then(url => { prefetched = { resolveUrl, url, at: Date.now() }; })
-        .catch(error => console.warn("Не удалось заранее получить следующий трек:", error))
-        .finally(() => { if (prefetchInFlight === resolveUrl) prefetchInFlight = null; });
-}
-
-function takePrefetched(resolveUrl) {
-    if (prefetched && prefetched.resolveUrl === resolveUrl && Date.now() - prefetched.at < PREFETCH_TTL) {
-        const url = prefetched.url;
-        prefetched = null;
-        return url;
-    }
-    return null;
+    playFromList(prevIndex, activeQueue, activeQueueIsLibrary);
 }
 
 // --- 3.1 УПРАВЛЕНИЕ С ЭКРАНА БЛОКИРОВКИ / НАУШНИКОВ (Media Session API) ---
@@ -232,19 +211,20 @@ function setupMediaSession() {
     const safe = (action, handler) => {
         try { ms.setActionHandler(action, handler); } catch { /* действие не поддерживается */ }
     };
-    safe('play', () => audioPlayer.play());
-    safe('pause', () => audioPlayer.pause());
+    safe('play', () => ytPlayer && ytPlayer.playVideo());
+    safe('pause', () => ytPlayer && ytPlayer.pauseVideo());
     safe('seekto', (details) => {
-        if (details.seekTime != null) audioPlayer.currentTime = details.seekTime;
+        if (ytPlayer && details.seekTime != null) ytPlayer.seekTo(details.seekTime, true);
     });
+    safe('nexttrack', () => playNext());
+    safe('previoustrack', playPrevious);
 }
 setupMediaSession();
 
-function updateMediaSession(name, artist, hasQueue) {
+function updateMediaSession(name, artist) {
     if (!('mediaSession' in navigator)) return;
-    const ms = navigator.mediaSession;
     try {
-        ms.metadata = new MediaMetadata({
+        navigator.mediaSession.metadata = new MediaMetadata({
             title: name || '',
             artist: artist || '',
             artwork: [
@@ -253,11 +233,6 @@ function updateMediaSession(name, artist, hasQueue) {
             ]
         });
     } catch { /* MediaMetadata недоступен */ }
-    // Кнопки «следующий/предыдущий» показываем только для очереди «Моя музыка»
-    try {
-        ms.setActionHandler('nexttrack', hasQueue ? playNext : null);
-        ms.setActionHandler('previoustrack', hasQueue ? playPrevious : null);
-    } catch { /* действие не поддерживается */ }
 }
 
 // --- 4. УТИЛИТЫ ---
@@ -268,13 +243,34 @@ function formatTime(seconds) {
     return `${mins}:${secs.toString().padStart(2, '0')}`;
 }
 
+function startProgressLoop() {
+    stopProgressLoop();
+    progressInterval = setInterval(() => {
+        if (!ytPlayer || isSeeking) return;
+        const duration = ytPlayer.getDuration();
+        const current = ytPlayer.getCurrentTime();
+        if (duration > 0) {
+            npSeek.value = (current / duration) * 100;
+            npDuration.textContent = formatTime(duration);
+        }
+        npCurrent.textContent = formatTime(current);
+    }, 500);
+}
+
+function stopProgressLoop() {
+    if (progressInterval) {
+        clearInterval(progressInterval);
+        progressInterval = null;
+    }
+}
+
 // --- 5.1 УПРАВЛЕНИЕ ПЛЕЕРОМ (PAUSE / SEEK) ---
 npPlayPause.addEventListener('click', () => {
-    if (!audioPlayer.src) return;
-    if (audioPlayer.paused) {
-        audioPlayer.play();
+    if (!ytPlayer || !ytPlayer.getPlayerState) return;
+    if (ytPlayer.getPlayerState() === YT.PlayerState.PLAYING) {
+        ytPlayer.pauseVideo();
     } else {
-        audioPlayer.pause();
+        ytPlayer.playVideo();
     }
 });
 
@@ -291,13 +287,14 @@ npLike.addEventListener('click', () => {
 
 npSeek.addEventListener('input', () => {
     isSeeking = true;
-    const duration = audioPlayer.duration;
+    const duration = ytPlayer.getDuration();
     npCurrent.textContent = formatTime((npSeek.value / 100) * duration);
 });
 
 npSeek.addEventListener('change', () => {
-    if (!audioPlayer.duration) return;
-    audioPlayer.currentTime = (npSeek.value / 100) * audioPlayer.duration;
+    if (!ytPlayer) return;
+    const duration = ytPlayer.getDuration();
+    ytPlayer.seekTo((npSeek.value / 100) * duration, true);
     isSeeking = false;
 });
 
@@ -320,7 +317,7 @@ navLibrary.addEventListener('click', async () => {
     loadLibrary();
 });
 
-// --- 6. РАБОТА С SOUNDCLOUD (ПОИСК) ---
+// --- 6. РАБОТА С YOUTUBE API (ПОИСК) ---
 searchInput.addEventListener('keypress', (e) => {
     if (e.key === 'Enter') {
         const queryText = searchInput.value;
@@ -329,10 +326,10 @@ searchInput.addEventListener('keypress', (e) => {
 });
 
 async function searchMusic(queryText) {
-    trackList.innerHTML = '<p class="status">Ищем музыку на SoundCloud...</p>';
+    trackList.innerHTML = '<p class="status">Ищем музыку на YouTube...</p>';
     loadMoreBtn.classList.add('hidden');
     lastSearchQuery = queryText;
-    nextPageHref = null;
+    nextPageToken = null;
 
     const tracks = await fetchSearchPage(queryText, null);
     if (tracks === null) return; // ошибка уже отображена внутри fetchSearchPage
@@ -344,56 +341,50 @@ async function searchMusic(queryText) {
 
 // Догружает следующую страницу результатов поиска и добавляет её к текущему списку
 async function loadMoreTracks() {
-    if (!nextPageHref || !lastSearchQuery) return;
+    if (!nextPageToken || !lastSearchQuery) return;
 
     loadMoreBtn.disabled = true;
     loadMoreBtn.textContent = 'Загрузка...';
 
-    const moreTracks = await fetchSearchPage(lastSearchQuery, nextPageHref);
+    const moreTracks = await fetchSearchPage(lastSearchQuery, nextPageToken);
 
     loadMoreBtn.disabled = false;
     loadMoreBtn.textContent = 'Ещё';
 
     if (moreTracks === null) return;
 
+    const previousTracks = lastSearchTracks;
     lastSearchTracks = [...(lastSearchTracks || []), ...moreTracks];
+    // Если сейчас играет поиск — догруженные треки тоже попадают в очередь нон-стоп
+    if (activeQueue && activeQueue === previousTracks) activeQueue = lastSearchTracks;
     renderTracks(lastSearchTracks, false);
     updateLoadMoreButton();
 }
 
-// Запрашивает одну страницу результатов через прокси и обновляет nextPageHref
-async function fetchSearchPage(queryText, pageHref) {
-    const url = pageHref
-        ? `${SOUNDCLOUD_PROXY}/api/search?next=${encodeURIComponent(pageHref)}`
-        : `${SOUNDCLOUD_PROXY}/api/search?q=${encodeURIComponent(queryText)}`;
+// Запрашивает одну страницу результатов у YouTube Data API и обновляет nextPageToken
+async function fetchSearchPage(queryText, pageToken) {
+    let url = `https://www.googleapis.com/youtube/v3/search?part=snippet&maxResults=10&q=${encodeURIComponent(queryText)}&type=video&videoCategoryId=10&videoEmbeddable=true&videoSyndicated=true&key=${YOUTUBE_API_KEY}`;
+    if (pageToken) url += `&pageToken=${pageToken}`;
 
     try {
         const response = await fetch(url);
         const data = await response.json();
 
-        if (data.error || !Array.isArray(data.collection)) {
-            console.error("Ошибка SoundCloud API:", data.error);
-            trackList.innerHTML = '<p class="status">Ошибка поиска. Попробуйте позже.</p>';
+        if (data.error) {
+            console.error("Ошибка YouTube API:", data.error.message);
+            trackList.innerHTML = '<p class="status">Ошибка API. Проверьте ключ.</p>';
             return null;
         }
 
-        nextPageHref = data.next_href || null;
+        nextPageToken = data.nextPageToken || null;
 
-        // Играть можем только треки с прогрессивным (обычным mp3) потоком —
-        // HLS-only/DRM треки плеер без отдельной библиотеки не потянет. У части
-        // мейджор-лейбловых треков (policy: SNIP) доступны только 30-секундные
-        // превью — не исключаем их из поиска, но честно помечаем в названии
-        return data.collection
-            .filter(item => item.streamable && getProgressiveTranscoding(item))
-            .map(item => {
-                const transcoding = getProgressiveTranscoding(item);
-                return {
-                    id: item.id,
-                    name: transcoding.snipped ? `${item.title} · превью 30 сек` : item.title,
-                    artist_name: item.user ? item.user.username : 'Неизвестный автор',
-                    audio: transcoding.url // ссылка на резолв потока, не сам mp3
-                };
-            });
+        // Преобразуем данные YouTube в наш формат
+        return data.items.map(item => ({
+            id: item.id.videoId,
+            name: item.snippet.title,
+            artist_name: item.snippet.channelTitle,
+            audio: item.id.videoId // В качестве "аудио" передаем ID видео
+        }));
     } catch (error) {
         console.error("Ошибка сети:", error);
         trackList.innerHTML = '<p class="status">Ошибка сети. Проверьте подключение.</p>';
@@ -401,14 +392,8 @@ async function fetchSearchPage(queryText, pageHref) {
     }
 }
 
-function getProgressiveTranscoding(item) {
-    const transcodings = item.media && item.media.transcodings;
-    if (!transcodings) return null;
-    return transcodings.find(t => t.format && t.format.protocol === 'progressive') || null;
-}
-
 function updateLoadMoreButton() {
-    loadMoreBtn.classList.toggle('hidden', !nextPageHref);
+    loadMoreBtn.classList.toggle('hidden', !nextPageToken);
 }
 
 loadMoreBtn.addEventListener('click', loadMoreTracks);
@@ -426,7 +411,7 @@ function renderTracks(tracks, isLibrary) {
 
     tracks.forEach((track, index) => {
         const trackCard = document.createElement('div');
-        trackCard.className = 'track-card';
+        trackCard.className = track.unavailable ? 'track-card unavailable' : 'track-card';
 
         const info = document.createElement('div');
         info.className = 'track-info';
@@ -469,7 +454,7 @@ function renderTracks(tracks, isLibrary) {
 // --- 8. ДЕЛЕГИРОВАНИЕ СОБЫТИЙ ---
 trackList.addEventListener('click', (e) => {
     const target = e.target;
-
+    
     if (target.classList.contains('play-btn')) {
         playFromList(Number(target.dataset.index), currentTracks, currentIsLibrary);
     } else if (target.classList.contains('like-btn')) {
@@ -496,7 +481,7 @@ async function handleLike(btn) {
             trackId: track.id,
             name: track.name,
             artist: track.artist,
-            audioUrl: track.url, // ссылка на резолв потока SoundCloud
+            audioUrl: track.url, // ID видео
             timestamp: Date.now()
         });
 
@@ -556,17 +541,18 @@ async function handleDelete(btn) {
     }
 }
 
-// --- 10. ВОСПРОИЗВЕДЕНИЕ ЧЕРЕЗ SOUNDCLOUD ---
-async function playFromList(index, tracks, isLibrary) {
+// --- 10. ВОСПРОИЗВЕДЕНИЕ ЧЕРЕЗ YOUTUBE ПЛЕЕР ---
+function playFromList(index, tracks, isLibrary) {
     const track = tracks[index];
     if (!track) return;
 
-    // Очередь нон-стоп заводим только для «Моя музыка»; из поиска играет один трек
-    activeQueue = isLibrary ? tracks : null;
+    // Очередь нон-стоп — список, из которого запустили трек (поиск или «Моя музыка»)
+    activeQueue = tracks;
     activeQueueIndex = index;
+    activeQueueIsLibrary = isLibrary;
 
     updateNowPlayingLikeButton(track, isLibrary);
-    await playMusic(track.audio, track.name, track.artist_name, takePrefetched(track.audio));
+    playMusic(track.audio, track.name, track.artist_name);
 }
 
 // Синхронизирует «сердечко» внизу с треком, который сейчас играет
@@ -582,39 +568,24 @@ function updateNowPlayingLikeButton(track, isLibrary) {
     });
 }
 
-// streamResolveUrl — это адрес SoundCloud, по которому ещё нужно получить
-// подписанную ссылку на сам mp3 (она короткоживущая, поэтому резолвим лениво,
-// только когда трек реально нажали, а не заранее для всех результатов поиска)
-async function resolveStreamUrl(streamResolveUrl) {
-    const response = await fetch(`${SOUNDCLOUD_PROXY}/api/stream?url=${encodeURIComponent(streamResolveUrl)}`);
-    const data = await response.json();
-    if (!data.url) throw new Error('Пустая ссылка на поток');
-    return data.url;
-}
+function playMusic(videoId, name, artist) {
+    if (ytPlayer && ytPlayer.loadVideoById) {
+        // Запускаем приглушённым: браузеры блокируют автовоспроизведение со звуком,
+        // если клик пришёл не напрямую в iframe плеера, а приглушённое всегда разрешено.
+        // Звук возвращаем в onPlayerStateChange, как только видео реально заиграло.
+        ytPlayer.mute();
+        ytPlayer.loadVideoById(videoId);
 
-// readyUrl — заранее полученная ссылка: тогда src и play() выставляются
-// синхронно, без ожидания сети (важно для смены трека при погашенном экране)
-async function playMusic(streamResolveUrl, name, artist, readyUrl = null) {
-    currentTrack = { audio: streamResolveUrl, name, artist };
-    retriedCurrent = false;
-    earlySwitched = false;
+        npTitle.textContent = name || '—';
+        npArtist.textContent = artist || '';
+        npSeek.value = 0;
+        npCurrent.textContent = '0:00';
+        npDuration.textContent = '0:00';
+        audioWrapper.classList.remove('hidden');
+        updateMediaSession(name, artist);
 
-    npTitle.textContent = name || '—';
-    npArtist.textContent = artist || '';
-    npSeek.value = 0;
-    npCurrent.textContent = '0:00';
-    npDuration.textContent = '0:00';
-    audioWrapper.classList.remove('hidden');
-    npPlayPause.textContent = '⏳';
-    updateMediaSession(name, artist, !!activeQueue);
-
-    try {
-        audioPlayer.src = readyUrl || await resolveStreamUrl(streamResolveUrl);
-        await audioPlayer.play();
-
-        console.log("Играет:", name);
-    } catch (error) {
-        console.error("Ошибка воспроизведения:", error);
-        npPlayPause.textContent = '▶️';
+        console.log("Играет трек ID:", videoId);
+    } else {
+        console.warn("Плеер YouTube еще не загрузился.");
     }
 }

@@ -7,7 +7,8 @@
     <title>Minimal Music</title>
     
     <link rel="manifest" href="manifest.json">
-    <link rel="icon" href="icon-192.png" type="image/png">
+    <link rel="icon" href="favicon.svg" type="image/svg+xml">
+    <link rel="icon" href="icon-192.png" type="image/png" sizes="192x192">
     <link rel="apple-touch-icon" href="icon-192.png">
     
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -21,7 +22,7 @@
         <header>
             <h1>My Music</h1>
             <div class="search-container">
-                <input type="text" id="search-input" placeholder="Поиск на SoundCloud...">
+                <input type="text" id="search-input" placeholder="Поиск на YouTube...">
             </div>
         </header>
 
@@ -50,7 +51,7 @@
                     <span id="np-duration">0:00</span>
                 </div>
             </div>
-            <audio id="audio-player" preload="auto"></audio>
+            <div id="yt-player" style="position: absolute; left: -9999px; width: 1px; height: 1px;"></div>
         </div>
 
         <nav class="bottom-nav">
