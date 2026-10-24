@@ -2564,3 +2564,71 @@ body.full-player-open {
         transition: none;
     }
 }
+
+/* --- 20. АНИМАЦИЯ --- */
+/* Эквалайзер на обложке играющего трека: три латунных столбика на затемнении.
+   Пока звук на паузе — столбики стоят */
+.cover .eq {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    gap: 3px;
+    padding-bottom: 14px;
+    background: rgba(10, 18, 16, 0.42);
+    pointer-events: none;
+}
+
+.cover .eq i {
+    width: 4px;
+    height: 20px;
+    border-radius: 2px;
+    background: #F2DFA8;
+    transform-origin: bottom;
+    animation: eq-bar 0.9s ease-in-out infinite alternate;
+    animation-play-state: paused;
+}
+
+.cover .eq i:nth-child(1) { transform: scaleY(0.45); animation-duration: 0.8s; }
+.cover .eq i:nth-child(2) { transform: scaleY(0.9); animation-duration: 1.05s; animation-delay: -0.4s; }
+.cover .eq i:nth-child(3) { transform: scaleY(0.6); animation-duration: 0.7s; animation-delay: -0.2s; }
+
+body.audio-playing .cover .eq i {
+    animation-play-state: running;
+}
+
+@keyframes eq-bar {
+    from { transform: scaleY(0.25); }
+    to { transform: scaleY(1); }
+}
+
+/* Мини-плеер выезжает снизу, когда впервые появляется */
+#audio-wrapper:not(.hidden) {
+    animation: player-rise 0.35s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+@keyframes player-rise {
+    from { transform: translateY(24px); opacity: 0; }
+    to { transform: none; opacity: 1; }
+}
+
+/* ♡ → ❤: короткий «удар сердца» в ответ на нажатие */
+[data-state="liked"] svg {
+    animation: like-pop 0.35s ease-out;
+}
+
+@keyframes like-pop {
+    0% { transform: scale(0.6); }
+    60% { transform: scale(1.18); }
+    100% { transform: scale(1); }
+}
+
+/* Кто просил меньше движения — без анимации, эквалайзер просто стоит */
+@media (prefers-reduced-motion: reduce) {
+    .cover .eq i,
+    #audio-wrapper:not(.hidden),
+    [data-state="liked"] svg {
+        animation: none;
+    }
+}

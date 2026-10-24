@@ -261,7 +261,7 @@ function fillCover(box, track, { lazy = false } = {}) {
         img.alt = '';
         img.loading = 'lazy';
         img.decoding = 'async';
-        img.addEventListener('error', () => { img.remove(); box.innerHTML = ICONS.note; });
+        img.addEventListener('error', () => img.replaceWith(ico('note', 'cover-note'))); // эквалайзер не трогаем
         box.append(img);
     } else {
         box.innerHTML = ICONS.note;
@@ -429,7 +429,9 @@ function showFileCover(box, track, { lazy = false, onUrl = null } = {}) {
         const img = document.createElement('img');
         img.alt = '';
         img.src = url;
-        box.replaceChildren(img);
+        // Меняем только ноту на картинку: эквалайзер поверх обложки остаётся
+        box.querySelectorAll(':scope > svg, :scope > img').forEach(node => node.remove());
+        box.prepend(img);
         if (onUrl) onUrl(url);
     });
     if (lazy && coverObserver) {
@@ -576,6 +578,7 @@ function playerSetVolume(volume) {
 }
 
 function onPlaybackPlaying() {
+    document.body.classList.add('audio-playing');
     gameOnPlaying();
     setPlayPauseIcon(true);
     startProgressLoop();
@@ -584,6 +587,7 @@ function onPlaybackPlaying() {
 }
 
 function onPlaybackPaused() {
+    document.body.classList.remove('audio-playing');
     gameOnPaused();
     setPlayPauseIcon(false);
     stopProgressLoop();
@@ -592,6 +596,7 @@ function onPlaybackPaused() {
 }
 
 function onPlaybackEnded() {
+    document.body.classList.remove('audio-playing');
     stopProgressLoop();
     setSeek(0);
     setTimes(0);
@@ -618,6 +623,7 @@ function onPlaybackError() {
         if (shownIndex >= 0) markTrackCardUnavailable(shownIndex);
     }
     if (!playNext()) {
+        document.body.classList.remove('audio-playing');
         stopProgressLoop();
         setPlayPauseIcon(false);
         npTitle.textContent = 'Трек недоступен';
@@ -1089,7 +1095,9 @@ function renderTracks(tracks, isLibrary, { sections = [], emptyText = 'Спис�
         });
 
         actions.append(playBtn, likeBtn);
-        trackCard.append(coverNode(track), info, actions);
+        const cover = coverNode(track);
+        if (index === playingIndex) cover.append(equalizerNode());
+        trackCard.append(cover, info, actions);
         trackList.appendChild(trackCard);
     });
 }
@@ -1537,10 +1545,19 @@ function playFromList(index, tracks, isLibrary) {
 // (по самому треку: при «Перемешать» очередь — другой массив из тех же треков)
 function highlightPlayingCard() {
     trackList.querySelectorAll('.track-card.is-playing').forEach(card => card.classList.remove('is-playing'));
+    trackList.querySelectorAll('.cover .eq').forEach(eq => eq.remove());
     const index = playingIndexIn(currentTracks);
     if (index < 0) return;
     const btn = trackList.querySelector(`.play-btn[data-index="${index}"]`);
-    if (btn) btn.closest('.track-card').classList.add('is-playing');
+    if (!btn) return;
+    const card = btn.closest('.track-card');
+    card.classList.add('is-playing');
+    card.querySelector('.cover').append(equalizerNode());
+}
+
+// Три столбика поверх обложки играющего трека; движутся, только пока звук идёт
+function equalizerNode() {
+    return el('span', { class: 'eq', 'aria-hidden': 'true' }, el('i'), el('i'), el('i'));
 }
 
 function playingTrack() {
