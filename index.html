@@ -21,16 +21,25 @@
     <div id="app">
         <header>
             <h1>My Music</h1>
-            <div class="search-container">
+            <div class="search-container" id="search-container">
                 <input type="text" id="search-input" placeholder="Поиск на YouTube...">
             </div>
         </header>
 
         <main id="player-container">
+            <div id="pick-banner" class="hidden"></div>
+            <div id="upload-bar" class="hidden">
+                <label class="upload-btn">
+                    ＋ Загрузить свои треки
+                    <input type="file" id="upload-input" accept="audio/*,.mp3,.m4a,.aac,.wav,.ogg,.flac" multiple hidden>
+                </label>
+                <span id="upload-status">MP3 и другие аудиофайлы, до 25 МБ каждый</span>
+            </div>
             <div id="track-list">
                 <p class="status">Введите название песни для поиска</p>
             </div>
             <button id="load-more-btn" class="hidden">Ещё</button>
+            <section id="events-view" class="hidden"></section>
         </main>
 
         <div id="audio-wrapper" class="hidden">
@@ -51,7 +60,32 @@
                     <span id="np-duration">0:00</span>
                 </div>
             </div>
-            <div id="yt-player" style="position: absolute; left: -9999px; width: 1px; height: 1px;"></div>
+            <!-- Свои файлы из облака играют здесь; треки YouTube — в плеере режима ведущего -->
+            <audio id="file-player" preload="auto"></audio>
+        </div>
+
+        <!-- Режим ведущего. Закрытый оверлей не скрыт через display:none, а сдвинут за
+             край экрана: внутри живёт YouTube-плеер, и он должен продолжать играть -->
+        <div id="show-mode" inert>
+            <div class="show-top">
+                <div class="show-heading">
+                    <strong id="show-event-title"></strong>
+                    <span id="show-clock"></span>
+                </div>
+                <button id="show-close" aria-label="Закрыть режим ведущего">✕</button>
+            </div>
+            <div id="show-video"><div id="yt-player"></div></div>
+            <div class="show-now">
+                <span class="show-label">Сейчас</span>
+                <strong id="show-block-title">Ничего не запущено</strong>
+                <span id="show-track-title"></span>
+            </div>
+            <div class="show-controls">
+                <button id="show-stop">⏹ Стоп</button>
+                <button id="show-playpause">▶ Играть</button>
+                <button id="show-next">Следующий блок ⏭</button>
+            </div>
+            <ol id="show-blocks"></ol>
         </div>
 
         <nav class="bottom-nav">
@@ -60,6 +94,9 @@
             </button>
             <button id="nav-library">
                 <span class="icon">🎵</span> Моя музыка
+            </button>
+            <button id="nav-events">
+                <span class="icon">🎉</span> Мероприятия
             </button>
         </nav>
     </div>

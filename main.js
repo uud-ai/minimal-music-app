@@ -38,7 +38,7 @@ function loadFirebase() {
         firebasePromise = (async () => {
             const [
                 { initializeApp },
-                { getFirestore, collection, addDoc, getDocs, query, where, deleteDoc, doc },
+                { getFirestore, collection, addDoc, getDocs, query, where, deleteDoc, doc, updateDoc },
                 { getAuth, signInAnonymously, onAuthStateChanged }
             ] = await Promise.all([
                 import("https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js"),
@@ -65,7 +65,7 @@ function loadFirebase() {
             });
 
             return {
-                db, collection, addDoc, getDocs, query, where, deleteDoc, doc,
+                db, collection, addDoc, getDocs, query, where, deleteDoc, doc, updateDoc,
                 authReady,
                 getCurrentUser: () => currentUser
             };
@@ -76,15 +76,23 @@ function loadFirebase() {
 
 // Константы приложения
 const YOUTUBE_API_KEY = "AIzaSyBgrlvnKuTsj4HSitEUT3Ae4yJLbNozfd8";
+// Свои аудиофайлы лежат в Cloudflare R2, загрузка и отдача — через воркер (worker/index.js)
+const FILES_API = "https://minimal-music-files.uudnik.workers.dev";
 
 const searchInput = document.getElementById('search-input');
 const trackList = document.getElementById('track-list');
 const navSearch = document.getElementById('nav-search');
 const navLibrary = document.getElementById('nav-library');
+const navEvents = document.getElementById('nav-events');
+const searchContainer = document.getElementById('search-container');
+const eventsView = document.getElementById('events-view');
+const pickBanner = document.getElementById('pick-banner');
 
 const loadMoreBtn = document.getElementById('load-more-btn');
 
 const audioWrapper = document.getElementById('audio-wrapper');
+const filePlayer = document.getElementById('file-player');
+const uploadBar = document.getElementById('upload-bar');
 const npTitle = document.getElementById('np-title');
 const npArtist = document.getElementById('np-artist');
 const npPlayPause = document.getElementById('np-playpause');
@@ -95,6 +103,7 @@ const npDuration = document.getElementById('np-duration');
 
 // --- 3. ЗАГРУЗКА YOUTUBE ПЛЕЕРА ---
 let ytPlayer;
+let currentSource = 'youtube'; // 'youtube' | 'file' — какой плеер сейчас главный
 let progressInterval = null;
 let isSeeking = false;
 
@@ -104,6 +113,8 @@ let currentIsLibrary = false;
 let activeQueue = null;
 let activeQueueIndex = -1;
 let activeQueueIsLibrary = false;
+// false — очередь играет один раз и останавливается (блок-«сигнал» в сценарии)
+let activeQueueLoop = true;
 let currentPlayingIsLibrary = false;
 
 // Последние результаты поиска — чтобы не терять их при переходе на вкладку «Моя музыка» и обратно
@@ -120,10 +131,10 @@ firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
 // Эта функция автоматически вызовется, когда скрипт YouTube загрузится
 window.onYouTubeIframeAPIReady = function() {
     ytPlayer = new YT.Player('yt-player', {
-        // 1x1, а не 0x0 — начиная с 2020-х YouTube считает нулевой по размеру
-        // плеер невидимым и отказывается автозапускать в нём видео
-        height: '1',
-        width: '1',
+        // Плеер живёт в окне видео режима ведущего (вне его оно сдвинуто за край
+        // экрана) и растягивается на всё окно — см. #show-video в styles.css
+        height: '100%',
+        width: '100%',
         videoId: '',
         playerVars: {
             'autoplay': 0,
@@ -138,34 +149,120 @@ window.onYouTubeIframeAPIReady = function() {
 };
 
 function onPlayerStateChange(event) {
+    if (isFileSource()) return; // сейчас играет свой файл — события YouTube не наши
     if (event.data === YT.PlayerState.PLAYING) {
         // Плеер запускался приглушённым, чтобы обойти блокировку автовоспроизведения
         // со звуком в браузере — как только видео реально заиграло, возвращаем звук
         if (ytPlayer.isMuted && ytPlayer.isMuted()) {
             ytPlayer.unMute();
         }
-        npPlayPause.textContent = '⏸️';
-        startProgressLoop();
-        if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing';
+        onPlaybackPlaying();
     } else if (event.data === YT.PlayerState.PAUSED) {
-        npPlayPause.textContent = '▶️';
-        stopProgressLoop();
-        if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused';
+        onPlaybackPaused();
     } else if (event.data === YT.PlayerState.ENDED) {
-        stopProgressLoop();
-        npSeek.value = 0;
-        npCurrent.textContent = '0:00';
-
-        // Нон-стоп: сразу включаем следующий трек из того же списка (по кругу)
-        if (!playNext()) npPlayPause.textContent = '▶️';
+        onPlaybackEnded();
     }
 }
 
 // Многие официальные треки лейблов (каналы «… - Topic», «Official Audio») запрещено
-// встраивать на сторонние сайты — плеер отдаёт ошибку 150/101 и молча стоит.
-// Помечаем такой трек недоступным и без паузы переходим к следующему
+// встраивать на сторонние сайты — плеер отдаёт ошибку 150/101 и молча стоит
 function onPlayerError(event) {
+    if (isFileSource()) return;
     console.warn("YouTube не может проиграть трек, код ошибки:", event.data);
+    onPlaybackError();
+}
+
+// --- 3.1 СВОИ ФАЙЛЫ: <audio> ---
+filePlayer.addEventListener('play', () => { if (isFileSource()) onPlaybackPlaying(); });
+filePlayer.addEventListener('pause', () => { if (isFileSource() && !filePlayer.ended) onPlaybackPaused(); });
+filePlayer.addEventListener('ended', () => { if (isFileSource()) onPlaybackEnded(); });
+filePlayer.addEventListener('error', () => {
+    if (!isFileSource() || !filePlayer.getAttribute('src')) return;
+    console.warn("Не удалось проиграть файл:", filePlayer.error);
+    onPlaybackError();
+});
+
+// --- 3.2 ОБЩИЙ ИНТЕРФЕЙС ПЛЕЕРА ---
+// Трек играет либо в YouTube-плеере (audio — ID видео), либо в <audio>
+// (source: 'file', audio — ссылка на файл в R2). Всё остальное приложение
+// управляет воспроизведением только через эти функции.
+function isFileSource() {
+    return currentSource === 'file';
+}
+
+function playerIsPlaying() {
+    if (isFileSource()) return !filePlayer.paused && !filePlayer.ended;
+    return !!(ytPlayer && ytPlayer.getPlayerState && ytPlayer.getPlayerState() === YT.PlayerState.PLAYING);
+}
+
+function playerPlay() {
+    if (isFileSource()) {
+        filePlayer.play().catch(error => console.warn("Не удалось запустить файл:", error));
+    } else if (ytPlayer && ytPlayer.playVideo) {
+        ytPlayer.playVideo();
+    }
+}
+
+function playerPause() {
+    if (isFileSource()) filePlayer.pause();
+    else if (ytPlayer && ytPlayer.pauseVideo) ytPlayer.pauseVideo();
+}
+
+function playerTime() {
+    if (isFileSource()) return filePlayer.currentTime;
+    return ytPlayer && ytPlayer.getCurrentTime ? ytPlayer.getCurrentTime() : 0;
+}
+
+function playerDuration() {
+    if (isFileSource()) return filePlayer.duration || 0;
+    return ytPlayer && ytPlayer.getDuration ? ytPlayer.getDuration() : 0;
+}
+
+function playerSeek(seconds) {
+    if (isFileSource()) filePlayer.currentTime = seconds;
+    else if (ytPlayer && ytPlayer.seekTo) ytPlayer.seekTo(seconds, true);
+}
+
+// Громкость 0–100, как у YouTube
+function playerGetVolume() {
+    if (isFileSource()) return Math.round(filePlayer.volume * 100);
+    return ytPlayer && ytPlayer.getVolume ? ytPlayer.getVolume() : 100;
+}
+
+function playerSetVolume(volume) {
+    if (isFileSource()) filePlayer.volume = Math.max(0, Math.min(1, volume / 100));
+    else if (ytPlayer && ytPlayer.setVolume) ytPlayer.setVolume(volume);
+}
+
+function onPlaybackPlaying() {
+    npPlayPause.textContent = '⏸️';
+    startProgressLoop();
+    if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing';
+    updateShowPlayPause();
+}
+
+function onPlaybackPaused() {
+    npPlayPause.textContent = '▶️';
+    stopProgressLoop();
+    if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused';
+    updateShowPlayPause();
+}
+
+function onPlaybackEnded() {
+    stopProgressLoop();
+    npSeek.value = 0;
+    npCurrent.textContent = '0:00';
+
+    // Нон-стоп: сразу включаем следующий трек из того же списка
+    if (!playNext()) {
+        npPlayPause.textContent = '▶️';
+        renderShowNow('Блок завершён');
+    }
+    updateShowPlayPause();
+}
+
+// Помечаем трек недоступным и без паузы переходим к следующему
+function onPlaybackError() {
     const track = activeQueue && activeQueue[activeQueueIndex];
     if (track) {
         track.unavailable = true;
@@ -177,14 +274,17 @@ function onPlayerError(event) {
     if (!playNext()) {
         stopProgressLoop();
         npPlayPause.textContent = '▶️';
-        npTitle.textContent = 'Трек недоступен для встраивания';
+        npTitle.textContent = 'Трек недоступен';
+        updateShowPlayPause();
     }
 }
 
 // Включает следующий проигрываемый трек очереди; false — если такого нет
+// (или очередь «один раз» дошла до конца)
 function playNext() {
     if (!activeQueue || activeQueue.length === 0) return false;
     for (let step = 1; step <= activeQueue.length; step++) {
+        if (!activeQueueLoop && activeQueueIndex + step >= activeQueue.length) return false;
         const nextIndex = (activeQueueIndex + step) % activeQueue.length;
         if (!activeQueue[nextIndex].unavailable) {
             playFromList(nextIndex, activeQueue, activeQueueIsLibrary);
@@ -195,26 +295,26 @@ function playNext() {
 }
 
 function playPrevious() {
-    if (!ytPlayer || !activeQueue || activeQueue.length === 0) return;
-    if (ytPlayer.getCurrentTime() > 3) {
-        ytPlayer.seekTo(0, true);
+    if (!activeQueue || activeQueue.length === 0) return;
+    if (playerTime() > 3) {
+        playerSeek(0);
         return;
     }
     const prevIndex = (activeQueueIndex - 1 + activeQueue.length) % activeQueue.length;
     playFromList(prevIndex, activeQueue, activeQueueIsLibrary);
 }
 
-// --- 3.1 УПРАВЛЕНИЕ С ЭКРАНА БЛОКИРОВКИ / НАУШНИКОВ (Media Session API) ---
+// --- 3.3 УПРАВЛЕНИЕ С ЭКРАНА БЛОКИРОВКИ / НАУШНИКОВ (Media Session API) ---
 function setupMediaSession() {
     if (!('mediaSession' in navigator)) return;
     const ms = navigator.mediaSession;
     const safe = (action, handler) => {
         try { ms.setActionHandler(action, handler); } catch { /* действие не поддерживается */ }
     };
-    safe('play', () => ytPlayer && ytPlayer.playVideo());
-    safe('pause', () => ytPlayer && ytPlayer.pauseVideo());
+    safe('play', playerPlay);
+    safe('pause', playerPause);
     safe('seekto', (details) => {
-        if (ytPlayer && details.seekTime != null) ytPlayer.seekTo(details.seekTime, true);
+        if (details.seekTime != null) playerSeek(details.seekTime);
     });
     safe('nexttrack', () => playNext());
     safe('previoustrack', playPrevious);
@@ -246,9 +346,9 @@ function formatTime(seconds) {
 function startProgressLoop() {
     stopProgressLoop();
     progressInterval = setInterval(() => {
-        if (!ytPlayer || isSeeking) return;
-        const duration = ytPlayer.getDuration();
-        const current = ytPlayer.getCurrentTime();
+        if (isSeeking) return;
+        const duration = playerDuration();
+        const current = playerTime();
         if (duration > 0) {
             npSeek.value = (current / duration) * 100;
             npDuration.textContent = formatTime(duration);
@@ -266,20 +366,21 @@ function stopProgressLoop() {
 
 // --- 5.1 УПРАВЛЕНИЕ ПЛЕЕРОМ (PAUSE / SEEK) ---
 npPlayPause.addEventListener('click', () => {
-    if (!ytPlayer || !ytPlayer.getPlayerState) return;
-    if (ytPlayer.getPlayerState() === YT.PlayerState.PLAYING) {
-        ytPlayer.pauseVideo();
+    if (playerIsPlaying()) {
+        playerPause();
     } else {
-        ytPlayer.playVideo();
+        playerPlay();
     }
 });
 
 // «Сердечко» рядом с play/pause — лайк/удаление текущего играющего трека
-npLike.addEventListener('click', () => {
+npLike.addEventListener('click', async () => {
     if (npLike.textContent.trim() === '🗑️') {
-        handleDelete(npLike);
+        if (await handleDelete(npLike) === false) return; // отказались удалять файл
         npLike.textContent = '♡';
         currentPlayingIsLibrary = false;
+        // Удалённый свой файл повторно «лайкнуть» нельзя — прячем кнопку
+        if (npLike.dataset.source === 'file') npLike.classList.add('hidden');
     } else {
         handleLike(npLike);
     }
@@ -287,21 +388,31 @@ npLike.addEventListener('click', () => {
 
 npSeek.addEventListener('input', () => {
     isSeeking = true;
-    const duration = ytPlayer.getDuration();
-    npCurrent.textContent = formatTime((npSeek.value / 100) * duration);
+    npCurrent.textContent = formatTime((npSeek.value / 100) * playerDuration());
 });
 
 npSeek.addEventListener('change', () => {
-    if (!ytPlayer) return;
-    const duration = ytPlayer.getDuration();
-    ytPlayer.seekTo((npSeek.value / 100) * duration, true);
+    const duration = playerDuration();
+    if (duration > 0) playerSeek((npSeek.value / 100) * duration);
     isSeeking = false;
 });
 
 // --- 5. ЛОГИКА НАВИГАЦИИ ---
+// Переключает экран: 'search' | 'library' | 'events'
+function showView(view) {
+    navSearch.classList.toggle('active', view === 'search');
+    navLibrary.classList.toggle('active', view === 'library');
+    navEvents.classList.toggle('active', view === 'events');
+    searchContainer.classList.toggle('hidden', view === 'events');
+    trackList.classList.toggle('hidden', view === 'events');
+    eventsView.classList.toggle('hidden', view !== 'events');
+    uploadBar.classList.toggle('hidden', view !== 'library');
+    if (view !== 'search') loadMoreBtn.classList.add('hidden');
+    renderPickBanner(view);
+}
+
 navSearch.addEventListener('click', () => {
-    navSearch.classList.add('active');
-    navLibrary.classList.remove('active');
+    showView('search');
     if (lastSearchTracks) {
         renderTracks(lastSearchTracks, false);
         updateLoadMoreButton();
@@ -311,10 +422,17 @@ navSearch.addEventListener('click', () => {
 });
 
 navLibrary.addEventListener('click', async () => {
-    navLibrary.classList.add('active');
-    navSearch.classList.remove('active');
-    loadMoreBtn.classList.add('hidden');
+    showView('library');
     loadLibrary();
+});
+
+navEvents.addEventListener('click', () => {
+    showView('events');
+    if (currentEvent) {
+        renderEventDetail();
+    } else {
+        loadEvents();
+    }
 });
 
 // --- 6. РАБОТА С YOUTUBE API (ПОИСК) ---
@@ -434,6 +552,16 @@ function renderTracks(tracks, isLibrary) {
             artist: track.artist_name
         });
 
+        // Пока выбираем треки для блока сценария — у каждого трека кнопка «＋»
+        if (pickTarget) {
+            const addBtn = document.createElement('button');
+            addBtn.className = 'add-btn';
+            addBtn.textContent = '＋';
+            addBtn.setAttribute('aria-label', 'Добавить в блок');
+            addBtn.dataset.index = String(index);
+            actions.append(addBtn);
+        }
+
         const likeBtn = document.createElement('button');
         likeBtn.className = 'like-btn';
         likeBtn.textContent = isLibrary ? '🗑️' : '♡';
@@ -442,7 +570,9 @@ function renderTracks(tracks, isLibrary) {
             url: track.audio,
             name: track.name,
             artist: track.artist_name,
-            docid: track.docId || ''
+            docid: track.docId || '',
+            source: track.source || '',
+            key: track.fileKey || ''
         });
 
         actions.append(playBtn, likeBtn);
@@ -456,7 +586,9 @@ trackList.addEventListener('click', (e) => {
     const target = e.target;
     
     if (target.classList.contains('play-btn')) {
-        playFromList(Number(target.dataset.index), currentTracks, currentIsLibrary);
+        startList(Number(target.dataset.index), currentTracks, currentIsLibrary);
+    } else if (target.classList.contains('add-btn')) {
+        addTrackToPickTarget(currentTracks[Number(target.dataset.index)], target);
     } else if (target.classList.contains('like-btn')) {
         const isLibrary = navLibrary.classList.contains('active');
         if (isLibrary) {
@@ -492,13 +624,14 @@ async function handleLike(btn) {
     }
 }
 
+// «Моя музыка» = свои загруженные файлы сверху + лайкнутые треки YouTube
 async function loadLibrary() {
     trackList.innerHTML = '<p class="status">Загружаем вашу библиотеку...</p>';
     try {
         const fb = await loadFirebase();
         await fb.authReady;
         const q = fb.query(fb.collection(fb.db, "liked_tracks"), fb.where("uid", "==", fb.getCurrentUser().uid));
-        const querySnapshot = await fb.getDocs(q);
+        const [querySnapshot, files] = await Promise.all([fb.getDocs(q), loadMyFiles()]);
         const tracks = [];
 
         querySnapshot.forEach((docSnap) => {
@@ -512,7 +645,9 @@ async function loadLibrary() {
             });
         });
 
-        renderTracks(tracks.reverse(), true);
+        // Пока грузились, пользователь мог уйти на другую вкладку
+        if (!navLibrary.classList.contains('active')) return;
+        renderTracks([...files, ...tracks.reverse()], true);
     } catch (error) {
         console.error("Ошибка загрузки библиотеки:", error);
         trackList.innerHTML = '<p class="status">Не удалось загрузить библиотеку.</p>';
@@ -522,6 +657,20 @@ async function loadLibrary() {
 async function handleDelete(btn) {
     const card = btn.closest('.track-card');
     const docId = btn.dataset.docid;
+
+    // Файл удаляется из облака насовсем — переспрашиваем
+    if (btn.dataset.source === 'file') {
+        if (!confirm(`Удалить файл «${btn.dataset.name}» из облака? В блоках мероприятий он перестанет играть.`)) return false;
+        if (card) card.remove();
+        try {
+            await filesApi(`/files/${encodeFileKey(btn.dataset.key)}`, { method: 'DELETE' });
+            recentlyDeleted.add(btn.dataset.key);
+        } catch (error) {
+            console.error("Ошибка удаления файла:", error);
+            alert("Не удалось удалить файл.");
+        }
+        return;
+    }
 
     if (card) {
         card.remove();
@@ -541,7 +690,127 @@ async function handleDelete(btn) {
     }
 }
 
-// --- 10. ВОСПРОИЗВЕДЕНИЕ ЧЕРЕЗ YOUTUBE ПЛЕЕР ---
+// --- 9.1 СВОИ ФАЙЛЫ В ОБЛАКЕ (CLOUDFLARE R2) ---
+// Ключ файла — «<uid>/<uuid>/<имя>»; в URL каждую часть кодируем отдельно, слэши оставляем
+function encodeFileKey(key) {
+    return key.split('/').map(encodeURIComponent).join('/');
+}
+
+function formatSize(bytes) {
+    return bytes >= 1024 * 1024 ? `${(bytes / 1024 / 1024).toFixed(1)} МБ` : `${Math.round(bytes / 1024)} КБ`;
+}
+
+async function getIdToken() {
+    const fb = await loadFirebase();
+    await fb.authReady;
+    return fb.getCurrentUser().getIdToken();
+}
+
+// Запрос к воркеру с Firebase ID-токеном — воркер пускает только к своим файлам
+async function filesApi(path, options = {}) {
+    const token = await getIdToken();
+    const response = await fetch(`${FILES_API}${path}`, {
+        ...options,
+        headers: { ...(options.headers || {}), Authorization: `Bearer ${token}` }
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+    return data;
+}
+
+// Список в Workers KV обновляется с задержкой до минуты — только что загруженные
+// и удалённые файлы помним сами, чтобы библиотека не «теряла» и не «воскрешала» их
+const recentUploads = [];
+const recentlyDeleted = new Set();
+const MAX_FILE_BYTES = 25 * 1024 * 1024; // предел воркера (значение в KV)
+
+// Свои файлы в формате треков; при ошибке воркера библиотека показывается без них
+async function loadMyFiles() {
+    try {
+        const { files: listed } = await filesApi('/list');
+        const files = [
+            ...recentUploads.filter(up => !listed.some(f => f.key === up.key)),
+            ...listed
+        ].filter(f => !recentlyDeleted.has(f.key));
+        return files.map(file => ({
+            id: file.key,
+            fileKey: file.key,
+            source: 'file',
+            name: file.name.replace(/\.[a-z0-9]{2,4}$/i, ''),
+            artist_name: `📁 Мой файл · ${formatSize(file.size)}`,
+            audio: `${FILES_API}/files/${encodeFileKey(file.key)}`
+        }));
+    } catch (error) {
+        console.warn("Не удалось загрузить список файлов:", error);
+        return [];
+    }
+}
+
+const uploadInput = document.getElementById('upload-input');
+const uploadStatus = document.getElementById('upload-status');
+
+uploadInput.addEventListener('change', async () => {
+    const files = [...uploadInput.files];
+    uploadInput.value = ''; // чтобы тот же файл можно было выбрать ещё раз
+    if (files.length === 0) return;
+
+    let failed = 0;
+    for (const [i, file] of files.entries()) {
+        const prefix = files.length > 1 ? `${i + 1} из ${files.length}: ` : '';
+        if (file.size > MAX_FILE_BYTES) {
+            failed++;
+            console.warn("Файл больше 25 МБ, пропущен:", file.name);
+            continue;
+        }
+        try {
+            const uploaded = await uploadFile(file, (percent) => {
+                uploadStatus.textContent = `Загрузка ${prefix}${file.name} — ${percent}%`;
+            });
+            recentUploads.unshift(uploaded);
+        } catch (error) {
+            failed++;
+            console.error("Ошибка загрузки файла:", file.name, error);
+        }
+    }
+    uploadStatus.textContent = failed
+        ? `Готово, но ${failed} из ${files.length} не загрузились (файлы больше 25 МБ не принимаются)`
+        : `Загружено: ${files.length}`;
+    if (navLibrary.classList.contains('active')) loadLibrary();
+});
+
+// XMLHttpRequest, а не fetch — нужен прогресс отправки для больших файлов
+async function uploadFile(file, onProgress) {
+    const token = await getIdToken();
+    // Некоторые браузеры не знают тип у .m4a/.flac — подставляем по расширению
+    const ext = file.name.split('.').pop().toLowerCase();
+    const type = file.type.startsWith('audio/') ? file.type
+        : ({ mp3: 'audio/mpeg', m4a: 'audio/mp4', aac: 'audio/aac', wav: 'audio/wav', ogg: 'audio/ogg', flac: 'audio/flac' }[ext] || 'audio/mpeg');
+
+    return new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open('PUT', `${FILES_API}/upload?name=${encodeURIComponent(file.name)}`);
+        xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+        xhr.setRequestHeader('Content-Type', type);
+        xhr.upload.onprogress = (e) => {
+            if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100));
+        };
+        xhr.onload = () => {
+            if (xhr.status >= 200 && xhr.status < 300) resolve(JSON.parse(xhr.responseText));
+            else reject(new Error(xhr.responseText || `HTTP ${xhr.status}`));
+        };
+        xhr.onerror = () => reject(new Error('Ошибка сети'));
+        xhr.send(file);
+    });
+}
+
+// --- 10. ВОСПРОИЗВЕДЕНИЕ (YOUTUBE ИЛИ СВОЙ ФАЙЛ) ---
+// Запуск нового списка пользователем (не переход к следующему треку внутри очереди)
+function startList(index, tracks, isLibrary, { loop = true, block = null } = {}) {
+    activeQueueLoop = loop;
+    playingBlock = block;
+    playFromList(index, tracks, isLibrary);
+}
+
 function playFromList(index, tracks, isLibrary) {
     const track = tracks[index];
     if (!track) return;
@@ -552,40 +821,527 @@ function playFromList(index, tracks, isLibrary) {
     activeQueueIsLibrary = isLibrary;
 
     updateNowPlayingLikeButton(track, isLibrary);
-    playMusic(track.audio, track.name, track.artist_name);
+    playMusic(track);
 }
 
 // Синхронизирует «сердечко» внизу с треком, который сейчас играет
 function updateNowPlayingLikeButton(track, isLibrary) {
     currentPlayingIsLibrary = isLibrary;
     npLike.textContent = isLibrary ? '🗑️' : '♡';
+    // Свой файл лайкать некуда — он и так в «Моей музыке»
+    npLike.classList.toggle('hidden', track.source === 'file' && !isLibrary);
     Object.assign(npLike.dataset, {
         id: track.id,
         url: track.audio,
         name: track.name,
         artist: track.artist_name,
-        docid: track.docId || ''
+        docid: track.docId || '',
+        source: track.source || '',
+        key: track.fileKey || ''
     });
 }
 
-function playMusic(videoId, name, artist) {
-    if (ytPlayer && ytPlayer.loadVideoById) {
+function playMusic(track) {
+    const { audio, name, artist_name: artist } = track;
+
+    if (track.source === 'file') {
+        // Сначала переключаем источник — тогда события остановленного YouTube игнорируются
+        currentSource = 'file';
+        if (ytPlayer && ytPlayer.stopVideo) ytPlayer.stopVideo();
+        filePlayer.volume = 1; // могли оставить приглушённым после затухания
+        filePlayer.src = audio;
+        filePlayer.play().catch(error => console.warn("Не удалось запустить файл:", error));
+    } else {
+        if (!ytPlayer || !ytPlayer.loadVideoById) {
+            console.warn("Плеер YouTube еще не загрузился.");
+            return;
+        }
+        currentSource = 'youtube';
+        filePlayer.pause();
         // Запускаем приглушённым: браузеры блокируют автовоспроизведение со звуком,
         // если клик пришёл не напрямую в iframe плеера, а приглушённое всегда разрешено.
         // Звук возвращаем в onPlayerStateChange, как только видео реально заиграло.
         ytPlayer.mute();
-        ytPlayer.loadVideoById(videoId);
+        ytPlayer.setVolume(100); // могли оставить приглушённой после затухания
+        ytPlayer.loadVideoById(audio);
+    }
 
-        npTitle.textContent = name || '—';
-        npArtist.textContent = artist || '';
-        npSeek.value = 0;
-        npCurrent.textContent = '0:00';
-        npDuration.textContent = '0:00';
-        audioWrapper.classList.remove('hidden');
-        updateMediaSession(name, artist);
+    npTitle.textContent = name || '—';
+    npArtist.textContent = artist || '';
+    npSeek.value = 0;
+    npCurrent.textContent = '0:00';
+    npDuration.textContent = '0:00';
+    audioWrapper.classList.remove('hidden');
+    updateMediaSession(name, artist);
+    renderShowNow();
 
-        console.log("Играет трек ID:", videoId);
-    } else {
-        console.warn("Плеер YouTube еще не загрузился.");
+    console.log("Играет:", name);
+}
+
+// --- 11. МЕРОПРИЯТИЯ И СЦЕНАРИЙ ---
+// Мероприятие — документ в коллекции events: название, тип, дата и блоки сценария.
+// Блок — отрезок вечера со своей музыкой: «фон» играет по кругу, «сигнал» — один раз
+// (выход, награждение, гимн). Блок без треков — тишина (речи, тосты).
+const EVENT_TYPES = {
+    corporate: { label: 'Корпоратив', icon: '🥂', blocks: [
+        ['Сбор гостей', true], ['Открытие', false], ['Награждение', false],
+        ['Банкет', true], ['Танцы', true], ['Финал', false]
+    ] },
+    kids: { label: 'Детский праздник', icon: '🎈', blocks: [
+        ['Встреча гостей', true], ['Выход аниматора', false], ['Игры', true],
+        ['Торт и свечи', false], ['Дискотека', true], ['Прощание', false]
+    ] },
+    official: { label: 'Официальный приём', icon: '🎖️', blocks: [
+        ['Сбор гостей', true], ['Гимн', false], ['Выход официальных лиц', false],
+        ['Выступления', false], ['Фуршет', true], ['Завершение', false]
+    ] },
+    wedding: { label: 'Свадьба', icon: '💍', blocks: [
+        ['Сбор гостей', true], ['Выход молодых', false], ['Банкет', true],
+        ['Первый танец', false], ['Торт', false], ['Танцы', true]
+    ] },
+    other: { label: 'Другое', icon: '📅', blocks: [['Блок 1', true]] }
+};
+
+let events = [];
+let currentEvent = null;  // { id, title, type, date, blocks }
+let pickTarget = null;    // { blockId } — в какой блок добавляем треки из поиска
+let playingBlock = null;  // { eventId, blockId } — какой блок сейчас звучит
+
+function newBlockId() {
+    return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+}
+
+function eventTypeInfo(type) {
+    return EVENT_TYPES[type] || EVENT_TYPES.other;
+}
+
+function formatEventDate(date) {
+    if (!date) return 'Без даты';
+    const [y, m, d] = date.split('-');
+    return `${d}.${m}.${y}`;
+}
+
+// Маленький помощник для разметки: el('button', { class: 'x', dataset: {...} }, 'текст', child)
+function el(tag, props = {}, ...children) {
+    const node = document.createElement(tag);
+    for (const [key, value] of Object.entries(props)) {
+        if (key === 'class') node.className = value;
+        else if (key === 'dataset') Object.assign(node.dataset, value);
+        else if (key in node) node[key] = value;
+        else node.setAttribute(key, value);
+    }
+    node.append(...children.filter(c => c != null));
+    return node;
+}
+
+async function loadEvents() {
+    currentEvent = null;
+    eventsView.replaceChildren(el('p', { class: 'status' }, 'Загружаем мероприятия...'));
+    try {
+        const fb = await loadFirebase();
+        await fb.authReady;
+        const q = fb.query(fb.collection(fb.db, "events"), fb.where("uid", "==", fb.getCurrentUser().uid));
+        const snapshot = await fb.getDocs(q);
+        events = [];
+        snapshot.forEach(docSnap => events.push({ id: docSnap.id, ...docSnap.data() }));
+        // Ближайшие по дате сверху, без даты — в конце
+        events.sort((a, b) => (a.date || '9999').localeCompare(b.date || '9999'));
+        renderEventsList();
+    } catch (error) {
+        console.error("Ошибка загрузки мероприятий:", error);
+        eventsView.replaceChildren(el('p', { class: 'status' }, 'Не удалось загрузить мероприятия.'));
     }
 }
+
+function renderEventsList() {
+    const typeSelect = el('select', { name: 'type' },
+        ...Object.entries(EVENT_TYPES).map(([value, info]) => el('option', { value }, `${info.icon} ${info.label}`)));
+
+    const form = el('form', { class: 'event-create' },
+        el('input', { name: 'title', type: 'text', placeholder: 'Название мероприятия', required: true }),
+        el('div', { class: 'event-create-row' },
+            typeSelect,
+            el('input', { name: 'date', type: 'date' })),
+        el('button', { type: 'submit', class: 'primary-btn' }, '＋ Создать по шаблону'));
+    form.addEventListener('submit', (e) => {
+        e.preventDefault();
+        createEvent(form.elements.title.value.trim(), form.elements.type.value, form.elements.date.value);
+    });
+
+    const list = events.length === 0
+        ? el('p', { class: 'status' }, 'Мероприятий пока нет')
+        : el('div', {}, ...events.map(ev => {
+            const info = eventTypeInfo(ev.type);
+            return el('button', { class: 'event-card', dataset: { action: 'open-event', id: ev.id } },
+                el('span', { class: 'event-icon' }, info.icon),
+                el('span', { class: 'event-card-info' },
+                    el('strong', {}, ev.title),
+                    el('span', {}, `${formatEventDate(ev.date)} · ${info.label} · блоков: ${(ev.blocks || []).length}`)));
+        }));
+
+    eventsView.replaceChildren(form, list);
+}
+
+async function createEvent(title, type, date) {
+    if (!title) return;
+    const blocks = eventTypeInfo(type).blocks.map(([blockTitle, loop]) => ({
+        id: newBlockId(), title: blockTitle, time: '', loop, tracks: []
+    }));
+    try {
+        const fb = await loadFirebase();
+        await fb.authReady;
+        const data = { uid: fb.getCurrentUser().uid, title, type, date, blocks, createdAt: Date.now() };
+        const ref = await fb.addDoc(fb.collection(fb.db, "events"), data);
+        const ev = { id: ref.id, ...data };
+        events.push(ev);
+        openEvent(ev);
+    } catch (error) {
+        console.error("Ошибка создания мероприятия:", error);
+        alert("Не удалось создать мероприятие.");
+    }
+}
+
+function openEvent(ev) {
+    currentEvent = ev;
+    renderEventDetail();
+    window.scrollTo(0, 0);
+}
+
+// Сохраняем мероприятие целиком — блоков немного, а так проще не разъехаться
+async function saveEvent() {
+    if (!currentEvent) return;
+    const { id, title, date, type, blocks } = currentEvent;
+    try {
+        const fb = await loadFirebase();
+        await fb.updateDoc(fb.doc(fb.db, "events", id), { title, date, type, blocks });
+    } catch (error) {
+        console.error("Ошибка сохранения мероприятия:", error);
+        alert("Не удалось сохранить изменения.");
+    }
+}
+
+function renderEventDetail() {
+    const ev = currentEvent;
+    const info = eventTypeInfo(ev.type);
+
+    const header = el('div', { class: 'event-header' },
+        el('button', { class: 'link-btn', dataset: { action: 'back' } }, '← Все мероприятия'),
+        el('input', { class: 'event-title-input', value: ev.title, dataset: { field: 'title' } }),
+        el('div', { class: 'event-meta' },
+            el('span', {}, `${info.icon} ${info.label}`),
+            el('input', { type: 'date', value: ev.date || '', dataset: { field: 'date' } })),
+        el('div', { class: 'event-actions' },
+            el('button', { class: 'primary-btn', dataset: { action: 'show' } }, '🎬 Режим ведущего'),
+            el('button', { class: 'ghost-btn', dataset: { action: 'delete-event' } }, '🗑 Удалить')));
+
+    const blocks = ev.blocks.map((block, i) => {
+        const isPlaying = playingBlock && playingBlock.eventId === ev.id && playingBlock.blockId === block.id;
+        const tracks = block.tracks.length === 0
+            ? el('p', { class: 'block-empty' }, 'Без музыки — тишина')
+            : el('ol', { class: 'block-tracks' }, ...block.tracks.map((track, t) =>
+                el('li', {},
+                    el('button', { class: 'mini-btn', dataset: { action: 'play-track', block: i, track: t }, 'aria-label': 'Играть' }, '▶'),
+                    el('span', { class: 'block-track-name' }, track.source === 'file' ? `📁 ${track.name}` : track.name),
+                    el('button', { class: 'mini-btn', dataset: { action: 'remove-track', block: i, track: t }, 'aria-label': 'Убрать' }, '✕'))));
+
+        return el('div', { class: isPlaying ? 'block-card playing' : 'block-card' },
+            el('div', { class: 'block-row' },
+                el('input', { type: 'time', value: block.time || '', dataset: { field: 'time', block: i } }),
+                el('input', { class: 'block-title-input', value: block.title, dataset: { field: 'block-title', block: i } }),
+                el('button', { class: 'play-btn', dataset: { action: 'play-block', block: i }, 'aria-label': 'Запустить блок' }, '▶️')),
+            el('div', { class: 'block-row block-tools' },
+                el('select', { dataset: { field: 'loop', block: i } },
+                    el('option', { value: 'loop', selected: block.loop }, '🔁 Фон по кругу'),
+                    el('option', { value: 'once', selected: !block.loop }, '🎺 Сигнал, один раз')),
+                el('button', { class: 'mini-btn', dataset: { action: 'move-up', block: i }, disabled: i === 0, 'aria-label': 'Выше' }, '↑'),
+                el('button', { class: 'mini-btn', dataset: { action: 'move-down', block: i }, disabled: i === ev.blocks.length - 1, 'aria-label': 'Ниже' }, '↓'),
+                el('button', { class: 'mini-btn', dataset: { action: 'remove-block', block: i }, 'aria-label': 'Удалить блок' }, '🗑')),
+            tracks,
+            el('button', { class: 'link-btn', dataset: { action: 'pick', block: i } }, '＋ Добавить трек'));
+    });
+
+    eventsView.replaceChildren(header, ...blocks,
+        el('button', { class: 'ghost-btn add-block-btn', dataset: { action: 'add-block' } }, '＋ Добавить блок'));
+}
+
+eventsView.addEventListener('click', (e) => {
+    const target = e.target.closest('[data-action]');
+    if (!target || target.disabled) return;
+    const { action } = target.dataset;
+    const blockIndex = Number(target.dataset.block);
+    const block = currentEvent && currentEvent.blocks[blockIndex];
+
+    switch (action) {
+        case 'open-event':
+            openEvent(events.find(ev => ev.id === target.dataset.id));
+            break;
+        case 'back':
+            loadEvents();
+            break;
+        case 'show':
+            openShowMode();
+            break;
+        case 'delete-event':
+            if (confirm(`Удалить «${currentEvent.title}»?`)) deleteEvent();
+            break;
+        case 'play-block':
+            playBlock(blockIndex);
+            break;
+        case 'play-track':
+            playBlock(blockIndex, Number(target.dataset.track));
+            break;
+        case 'remove-track':
+            block.tracks.splice(Number(target.dataset.track), 1);
+            saveEvent();
+            renderEventDetail();
+            break;
+        case 'move-up':
+        case 'move-down': {
+            const to = action === 'move-up' ? blockIndex - 1 : blockIndex + 1;
+            const blocks = currentEvent.blocks;
+            [blocks[blockIndex], blocks[to]] = [blocks[to], blocks[blockIndex]];
+            saveEvent();
+            renderEventDetail();
+            break;
+        }
+        case 'remove-block':
+            if (block.tracks.length === 0 || confirm(`Удалить блок «${block.title}» вместе с треками?`)) {
+                currentEvent.blocks.splice(blockIndex, 1);
+                saveEvent();
+                renderEventDetail();
+            }
+            break;
+        case 'add-block':
+            currentEvent.blocks.push({ id: newBlockId(), title: 'Новый блок', time: '', loop: true, tracks: [] });
+            saveEvent();
+            renderEventDetail();
+            break;
+        case 'pick':
+            pickTarget = { blockId: block.id };
+            navSearch.click();
+            break;
+    }
+});
+
+eventsView.addEventListener('change', (e) => {
+    const { field } = e.target.dataset;
+    if (!field || !currentEvent) return;
+    const block = currentEvent.blocks[Number(e.target.dataset.block)];
+    const value = e.target.value;
+
+    if (field === 'title') currentEvent.title = value.trim() || currentEvent.title;
+    else if (field === 'date') currentEvent.date = value;
+    else if (field === 'time') block.time = value;
+    else if (field === 'block-title') block.title = value.trim() || block.title;
+    else if (field === 'loop') block.loop = value === 'loop';
+    saveEvent();
+});
+
+async function deleteEvent() {
+    const id = currentEvent.id;
+    try {
+        const fb = await loadFirebase();
+        await fb.deleteDoc(fb.doc(fb.db, "events", id));
+        if (playingBlock && playingBlock.eventId === id) playingBlock = null;
+        loadEvents();
+    } catch (error) {
+        console.error("Ошибка удаления мероприятия:", error);
+        alert("Не удалось удалить мероприятие.");
+    }
+}
+
+// Плашка «Добавляете в блок …» над поиском/библиотекой, пока выбираем треки
+function renderPickBanner(view) {
+    const block = pickTarget && currentEvent && currentEvent.blocks.find(b => b.id === pickTarget.blockId);
+    if (!block || view === 'events') {
+        pickBanner.classList.add('hidden');
+        return;
+    }
+    pickBanner.replaceChildren(
+        el('span', {}, `Добавляете в «${block.title}» · треков: ${block.tracks.length}`),
+        el('button', { class: 'primary-btn', dataset: { action: 'pick-done' } }, 'Готово'));
+    pickBanner.classList.remove('hidden');
+}
+
+pickBanner.addEventListener('click', (e) => {
+    if (!e.target.closest('[data-action="pick-done"]')) return;
+    pickTarget = null;
+    navEvents.click();
+});
+
+function addTrackToPickTarget(track, btn) {
+    const block = pickTarget && currentEvent && currentEvent.blocks.find(b => b.id === pickTarget.blockId);
+    if (!block || !track) return;
+    block.tracks.push({
+        id: track.id, name: track.name, artist_name: track.artist_name, audio: track.audio,
+        // undefined Firestore не примет — поле source пишем только у своих файлов
+        ...(track.source === 'file' ? { source: 'file', fileKey: track.fileKey } : {})
+    });
+    saveEvent();
+    btn.textContent = '✓';
+    btn.disabled = true;
+    renderPickBanner('search');
+}
+
+// Плавно уводит громкость в ноль, затем вызывает callback (смена блока без обрыва звука)
+function fadeOutThen(callback, ms = 1200) {
+    if (!playerIsPlaying()) {
+        callback();
+        return;
+    }
+    const steps = 12;
+    const startVolume = playerGetVolume();
+    const fadingSource = currentSource;
+    let step = 0;
+    const timer = setInterval(() => {
+        step++;
+        playerSetVolume(Math.round(startVolume * (1 - step / steps)));
+        if (step >= steps) {
+            clearInterval(timer);
+            callback();
+            // Если callback только поставил на паузу — возвращаем громкость,
+            // иначе после «Играть» музыка продолжится беззвучно. Если же callback
+            // переключил источник (YouTube ↔ файл), громкость нового уже выставлена
+            if (currentSource === fadingSource) playerSetVolume(startVolume);
+        }
+    }, ms / steps);
+}
+
+function playBlock(blockIndex, trackIndex = 0) {
+    const ev = currentEvent;
+    const block = ev && ev.blocks[blockIndex];
+    if (!block) return;
+
+    fadeOutThen(() => {
+        if (block.tracks.length === 0) {
+            // Блок-тишина: просто останавливаем музыку
+            playingBlock = { eventId: ev.id, blockId: block.id };
+            activeQueue = null;
+            playerPause();
+            renderShowNow('Тишина');
+        } else {
+            // Копия треков — пометки «недоступен» не должны попасть в сохранённое мероприятие
+            const tracks = block.tracks.map(t => ({ ...t }));
+            startList(trackIndex, tracks, false, { loop: block.loop, block: { eventId: ev.id, blockId: block.id } });
+        }
+        if (!eventsView.classList.contains('hidden') && currentEvent === ev) renderEventDetail();
+        renderShowBlocks();
+    });
+}
+
+// --- 12. РЕЖИМ ВЕДУЩЕГО ---
+// Полноэкранный пульт: видно видео (YouTube требует видимый плеер), текущий блок,
+// большая кнопка «Следующий блок» и весь сценарий. Экран не гаснет (Wake Lock).
+const showMode = document.getElementById('show-mode');
+const showEventTitle = document.getElementById('show-event-title');
+const showClock = document.getElementById('show-clock');
+const showBlockTitle = document.getElementById('show-block-title');
+const showTrackTitle = document.getElementById('show-track-title');
+const showBlocks = document.getElementById('show-blocks');
+const showPlayPause = document.getElementById('show-playpause');
+let clockTimer = null;
+let wakeLock = null;
+
+function openShowMode() {
+    if (!currentEvent) return;
+    showEventTitle.textContent = currentEvent.title;
+    showMode.classList.add('open');
+    showMode.removeAttribute('inert');
+    document.body.classList.add('show-open');
+    updateClock();
+    clockTimer = setInterval(updateClock, 1000);
+    requestWakeLock();
+    renderShowNow();
+    renderShowBlocks();
+    updateShowPlayPause();
+}
+
+function closeShowMode() {
+    showMode.classList.remove('open');
+    showMode.setAttribute('inert', '');
+    document.body.classList.remove('show-open');
+    clearInterval(clockTimer);
+    if (wakeLock) wakeLock.release().catch(() => {});
+    wakeLock = null;
+    if (currentEvent && !eventsView.classList.contains('hidden')) renderEventDetail();
+}
+
+function updateClock() {
+    showClock.textContent = new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+}
+
+async function requestWakeLock() {
+    if (!('wakeLock' in navigator)) return;
+    try {
+        wakeLock = await navigator.wakeLock.request('screen');
+    } catch (error) {
+        console.warn("Не удалось запретить гашение экрана:", error);
+    }
+}
+
+// Wake Lock снимается, когда вкладка уходит в фон — возвращаем его
+document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && showMode.classList.contains('open')) requestWakeLock();
+});
+
+function currentBlockIndex() {
+    if (!playingBlock || !currentEvent || playingBlock.eventId !== currentEvent.id) return -1;
+    return currentEvent.blocks.findIndex(b => b.id === playingBlock.blockId);
+}
+
+function renderShowNow(status) {
+    if (!showMode.classList.contains('open')) return;
+    const index = currentBlockIndex();
+    const block = index >= 0 ? currentEvent.blocks[index] : null;
+    showBlockTitle.textContent = block ? block.title : 'Ничего не запущено';
+    const track = activeQueue && activeQueue[activeQueueIndex];
+    showTrackTitle.textContent = status || (block && track ? track.name : '');
+}
+
+function renderShowBlocks() {
+    if (!showMode.classList.contains('open') || !currentEvent) return;
+    const current = currentBlockIndex();
+    showBlocks.replaceChildren(...currentEvent.blocks.map((block, i) =>
+        el('li', {},
+            el('button', { class: i === current ? 'show-block current' : 'show-block', dataset: { block: i } },
+                el('span', { class: 'show-block-time' }, block.time || '—'),
+                el('span', { class: 'show-block-title' }, block.title),
+                el('span', { class: 'show-block-kind' },
+                    block.tracks.length === 0 ? '🤫' : (block.loop ? '🔁' : '🎺'))))));
+    const currentEl = showBlocks.querySelector('.current');
+    if (currentEl) currentEl.scrollIntoView({ block: 'nearest' });
+}
+
+function updateShowPlayPause() {
+    showPlayPause.textContent = playerIsPlaying() ? '⏸ Пауза' : '▶ Играть';
+}
+
+showBlocks.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-block]');
+    if (btn) playBlock(Number(btn.dataset.block));
+});
+
+document.getElementById('show-close').addEventListener('click', closeShowMode);
+
+document.getElementById('show-next').addEventListener('click', () => {
+    if (!currentEvent || currentEvent.blocks.length === 0) return;
+    const next = currentBlockIndex() + 1;
+    if (next < currentEvent.blocks.length) playBlock(next);
+});
+
+showPlayPause.addEventListener('click', () => {
+    if (playerIsPlaying()) {
+        playerPause();
+    } else if (!activeQueue && currentBlockIndex() >= 0) {
+        playBlock(currentBlockIndex());
+    } else {
+        playerPlay();
+    }
+});
+
+document.getElementById('show-stop').addEventListener('click', () => {
+    fadeOutThen(() => {
+        playerPause();
+        renderShowNow('Остановлено');
+    });
+});

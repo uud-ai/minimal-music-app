@@ -345,3 +345,465 @@ audio::-webkit-media-controls-panel {
     color: var(--gold);
     font-weight: 500;
 }
+/* --- 7. ВЫБОР ТРЕКОВ ДЛЯ БЛОКА --- */
+#pick-banner {
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 20px;
+    background: var(--ivory);
+    border-bottom: 1px solid var(--gold);
+    font-size: 0.9rem;
+}
+
+#pick-banner span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.add-btn {
+    background: none;
+    border: 1px solid var(--gold);
+    border-radius: 50%;
+    width: 34px;
+    height: 34px;
+    font-size: 1.1rem;
+    color: var(--gold);
+    cursor: pointer;
+}
+
+.add-btn:disabled {
+    background: var(--gold);
+    color: var(--ivory);
+    cursor: default;
+}
+
+/* --- 8. МЕРОПРИЯТИЯ --- */
+#events-view {
+    padding: 16px 20px;
+}
+
+.primary-btn, .ghost-btn {
+    padding: 10px 14px;
+    border-radius: 8px;
+    font-family: inherit;
+    font-size: 0.95rem;
+    cursor: pointer;
+    border: 1px solid var(--gold);
+}
+
+.primary-btn {
+    background: var(--gold);
+    color: #fff;
+}
+
+.ghost-btn {
+    background: transparent;
+    color: var(--gold);
+}
+
+.link-btn {
+    background: none;
+    border: none;
+    color: var(--gold);
+    font-family: inherit;
+    font-size: 0.95rem;
+    cursor: pointer;
+    padding: 6px 0;
+}
+
+#events-view input, #events-view select {
+    font-family: inherit;
+    font-size: 16px; /* меньше 16px — iOS зумит страницу при фокусе */
+    padding: 8px 10px;
+    border: 1px solid var(--light-gold);
+    border-radius: 8px;
+    background: transparent;
+    color: var(--dark);
+    min-width: 0;
+}
+
+#events-view input:focus, #events-view select:focus {
+    outline: none;
+    border-color: var(--gold);
+}
+
+.event-create {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding-bottom: 20px;
+    margin-bottom: 10px;
+    border-bottom: 1px solid var(--light-gold);
+}
+
+.event-create-row {
+    display: flex;
+    gap: 10px;
+}
+
+.event-create-row > * {
+    flex: 1;
+}
+
+.event-card {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    width: 100%;
+    padding: 14px 0;
+    background: none;
+    border: none;
+    border-bottom: 1px solid var(--light-gold);
+    text-align: left;
+    font-family: inherit;
+    color: var(--dark);
+    cursor: pointer;
+}
+
+.event-icon {
+    font-size: 1.8rem;
+}
+
+.event-card-info {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.event-card-info strong {
+    font-weight: 500;
+    font-size: 1.05rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.event-card-info span {
+    font-size: 0.85rem;
+    color: var(--gray);
+}
+
+.event-header {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-bottom: 16px;
+}
+
+#events-view .event-title-input {
+    font-size: 1.3rem;
+    font-weight: 500;
+    border-color: transparent;
+    padding-left: 0;
+}
+
+.event-meta {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    color: var(--gray);
+}
+
+.event-actions {
+    display: flex;
+    gap: 10px;
+}
+
+.event-actions .primary-btn {
+    flex: 1;
+}
+
+.block-card {
+    border: 1px solid var(--light-gold);
+    border-radius: 12px;
+    padding: 12px;
+    margin-bottom: 12px;
+    transition: border-color 0.3s, background 0.3s;
+}
+
+.block-card.playing {
+    border-color: var(--gold);
+    background: var(--light-gold);
+}
+
+.block-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.block-row input[type="time"] {
+    flex: 0 0 auto;
+    width: 104px;
+}
+
+#events-view .block-title-input {
+    flex: 1;
+    font-weight: 500;
+}
+
+.block-tools {
+    margin-top: 8px;
+}
+
+.block-tools select {
+    flex: 1;
+}
+
+.mini-btn {
+    flex-shrink: 0;
+    width: 32px;
+    height: 32px;
+    background: none;
+    border: 1px solid var(--light-gold);
+    border-radius: 8px;
+    color: var(--gold);
+    cursor: pointer;
+    font-size: 0.9rem;
+}
+
+.mini-btn:disabled {
+    opacity: 0.3;
+    cursor: default;
+}
+
+.block-tracks {
+    list-style: none;
+    margin: 10px 0 4px;
+}
+
+.block-tracks li {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 0;
+}
+
+.block-track-name {
+    flex: 1;
+    min-width: 0;
+    font-size: 0.9rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.block-empty {
+    margin: 10px 0 4px;
+    font-size: 0.85rem;
+    color: var(--gray);
+    font-style: italic;
+}
+
+.add-block-btn {
+    width: 100%;
+}
+
+/* --- 9. РЕЖИМ ВЕДУЩЕГО --- */
+/* Тёмный полноэкранный пульт — на проекторе и в полутёмном зале читается лучше.
+   Закрытым он сдвинут за край экрана, а не скрыт: внутри играет YouTube-плеер */
+#show-mode {
+    position: fixed;
+    inset: 0;
+    z-index: 200;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    padding: calc(12px + env(safe-area-inset-top)) 16px calc(12px + env(safe-area-inset-bottom));
+    background: var(--dark);
+    color: var(--ivory);
+    transform: translateX(-200vw);
+}
+
+#show-mode.open {
+    transform: none;
+}
+
+body.show-open {
+    overflow: hidden;
+}
+
+.show-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.show-heading {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    min-width: 0;
+}
+
+#show-event-title {
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+#show-clock {
+    color: var(--gold);
+    font-variant-numeric: tabular-nums;
+}
+
+#show-close {
+    background: none;
+    border: none;
+    color: var(--ivory);
+    font-size: 1.4rem;
+    cursor: pointer;
+    padding: 4px 8px;
+}
+
+#show-video {
+    flex-shrink: 0;
+    width: 100%;
+    max-width: 640px;
+    max-height: 34vh;
+    aspect-ratio: 16 / 9;
+    margin: 0 auto;
+    border-radius: 10px;
+    overflow: hidden;
+    background: #000;
+}
+
+#show-video iframe {
+    display: block;
+    width: 100%;
+    height: 100%;
+    border: 0;
+}
+
+.show-now {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    gap: 4px;
+}
+
+.show-label {
+    font-size: 0.75rem;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: var(--gold);
+}
+
+#show-block-title {
+    font-size: 1.7rem;
+    font-weight: 500;
+}
+
+#show-track-title {
+    color: var(--gray);
+    font-size: 0.95rem;
+    min-height: 1.2em;
+}
+
+.show-controls {
+    display: grid;
+    grid-template-columns: 1fr 1fr 2fr;
+    gap: 10px;
+}
+
+.show-controls button {
+    padding: 16px 8px;
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 240, 0.25);
+    background: transparent;
+    color: var(--ivory);
+    font-family: inherit;
+    font-size: 1rem;
+    cursor: pointer;
+}
+
+#show-next {
+    background: var(--gold);
+    border-color: var(--gold);
+    color: var(--dark);
+    font-weight: 500;
+}
+
+.show-controls button:active {
+    transform: scale(0.97);
+}
+
+#show-blocks {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    list-style: none;
+}
+
+.show-block {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    padding: 12px 10px;
+    background: none;
+    border: none;
+    border-bottom: 1px solid rgba(255, 255, 240, 0.08);
+    color: var(--ivory);
+    font-family: inherit;
+    font-size: 1rem;
+    text-align: left;
+    cursor: pointer;
+}
+
+.show-block.current {
+    background: rgba(212, 175, 55, 0.2);
+    border-radius: 8px;
+}
+
+.show-block-time {
+    width: 48px;
+    color: var(--gray);
+    font-variant-numeric: tabular-nums;
+}
+
+.show-block-title {
+    flex: 1;
+    min-width: 0;
+}
+
+/* --- 10. ЗАГРУЗКА СВОИХ ФАЙЛОВ --- */
+#upload-bar {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 14px 20px;
+    border-bottom: 1px solid var(--light-gold);
+}
+
+.upload-btn {
+    display: block;
+    padding: 12px;
+    border: 1px dashed var(--gold);
+    border-radius: 8px;
+    color: var(--gold);
+    text-align: center;
+    cursor: pointer;
+    transition: background 0.3s;
+}
+
+.upload-btn:hover, .upload-btn:active {
+    background: var(--light-gold);
+}
+
+#upload-status {
+    font-size: 0.8rem;
+    color: var(--gray);
+    text-align: center;
+}

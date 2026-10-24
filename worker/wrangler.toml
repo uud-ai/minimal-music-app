@@ -1,0 +1,8 @@
+name = "minimal-music-files"
+main = "index.js"
+compatibility_date = "2026-10-01"
+
+# Workers KV, а не R2: KV есть в бесплатном тарифе без привязки карты
+[[kv_namespaces]]
+binding = "FILES"
+id = "96e5f59de8e544b79d2af1f74b3f6949"
