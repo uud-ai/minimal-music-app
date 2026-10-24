@@ -3,7 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <meta name="theme-color" content="#FFFFF0">
+    <!-- Цвет системной строки — под светлую и тёмную тему телефона -->
+    <meta name="theme-color" content="#FAF6EA" media="(prefers-color-scheme: light)">
+    <meta name="theme-color" content="#0F1D1B" media="(prefers-color-scheme: dark)">
+    <meta name="color-scheme" content="light dark">
     <title>Minimal Music</title>
     
     <link rel="manifest" href="manifest.json">
@@ -13,17 +16,21 @@
     
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500&display=swap" rel="stylesheet">
+    <!-- Golos Text — основной текст (рисовался под кириллицу), Cormorant Garamond — название и заголовки -->
+    <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@1,500;1,600&family=Golos+Text:wght@400;500;600&display=swap" rel="stylesheet">
     
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
     <div id="app">
         <header>
-            <h1>My Music</h1>
-            <button id="account-btn" aria-label="Войти в аккаунт">Войти</button>
+            <div class="header-row">
+                <h1>My Music</h1>
+                <button id="account-btn" aria-label="Войти в аккаунт">Войти</button>
+            </div>
             <div class="search-container" id="search-container">
-                <input type="text" id="search-input" placeholder="Поиск на YouTube...">
+                <svg class="search-icon" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4 4"/></svg>
+                <input type="search" id="search-input" placeholder="Песня или исполнитель" enterkeyhint="search" aria-label="Поиск на YouTube">
             </div>
         </header>
 
@@ -46,13 +53,14 @@
         <div id="audio-wrapper" class="hidden">
             <div id="now-playing">
                 <div class="np-top">
+                    <div id="np-cover" class="cover"></div>
                     <div class="np-info">
                         <strong id="np-title">—</strong>
                         <span id="np-artist"></span>
                     </div>
                     <div class="np-controls">
-                        <button id="np-like" aria-label="Добавить в «Моя музыка»">♡</button>
-                        <button id="np-playpause" aria-label="Пауза / Воспроизведение">⏸️</button>
+                        <button id="np-like" aria-label="Добавить в «Моя музыка»"></button>
+                        <button id="np-playpause" aria-label="Играть"></button>
                     </div>
                 </div>
                 <div class="np-progress">
@@ -108,13 +116,16 @@
 
         <nav class="bottom-nav">
             <button id="nav-search" class="active">
-                <span class="icon">🔍</span> Поиск
+                <svg class="icon" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4 4"/></svg>
+                Поиск
             </button>
             <button id="nav-library">
-                <span class="icon">🎵</span> Моя музыка
+                <svg class="icon" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V6l10-2v12"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="16.5" cy="16" r="2.5"/></svg>
+                Моя музыка
             </button>
             <button id="nav-events">
-                <span class="icon">🎉</span> Мероприятия
+                <svg class="icon" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="5.5" width="16" height="14.5" rx="2.5"/><path d="M4 10h16M8.5 3.5v4M15.5 3.5v4"/><path d="m12 12.6.9 1.8 2 .3-1.45 1.4.35 2-1.8-.95-1.8.95.35-2-1.45-1.4 2-.3z" fill="currentColor" stroke="none"/></svg>
+                Мероприятия
             </button>
         </nav>
     </div>

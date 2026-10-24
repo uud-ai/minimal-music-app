@@ -134,6 +134,75 @@ const npLike = document.getElementById('np-like');
 const npSeek = document.getElementById('np-seek');
 const npCurrent = document.getElementById('np-current');
 const npDuration = document.getElementById('np-duration');
+const npCover = document.getElementById('np-cover');
+
+// --- 2.2 ИКОНКИ ---
+// Линейные SVG-иконки вместо эмодзи: эмодзи на каждом телефоне рисуются по-своему
+// (▶️ — оранжевым квадратом) и не красятся в цвета темы. currentColor — цвет кнопки
+const svg = (body, filled = false) =>
+    `<svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" focusable="false" fill="${filled ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${body}</svg>`;
+const ICONS = {
+    play: svg('<path d="M8 5.5v13a.6.6 0 0 0 .9.5l10.2-6.5a.6.6 0 0 0 0-1L8.9 5a.6.6 0 0 0-.9.5z"/>', true),
+    pause: svg('<rect x="6.5" y="5" width="3.6" height="14" rx="1"/><rect x="13.9" y="5" width="3.6" height="14" rx="1"/>', true),
+    heart: svg('<path d="M12 20s-7.5-4.6-7.5-10.1A4.4 4.4 0 0 1 12 7a4.4 4.4 0 0 1 7.5 2.9C19.5 15.4 12 20 12 20z"/>'),
+    heartFilled: svg('<path d="M12 20s-7.5-4.6-7.5-10.1A4.4 4.4 0 0 1 12 7a4.4 4.4 0 0 1 7.5 2.9C19.5 15.4 12 20 12 20z"/>', true),
+    trash: svg('<path d="M4.5 7h15M9.5 7V5.2c0-.7.5-1.2 1.2-1.2h2.6c.7 0 1.2.5 1.2 1.2V7M6.5 7l.8 11.6c.1.8.7 1.4 1.5 1.4h6.4c.8 0 1.4-.6 1.5-1.4L17.5 7M10.3 11v5M13.7 11v5"/>'),
+    busy: svg('<path d="M12 4a8 8 0 1 0 8 8" class="spin"/>'),
+    error: svg('<circle cx="12" cy="12" r="8"/><path d="M12 8v4.5M12 16h.01"/>'),
+    note: svg('<path d="M9 18V6l10-2v12"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="16.5" cy="16" r="2.5"/>')
+};
+
+// ♡ / ❤️ / корзина / ожидание / ошибка — состояние в data-state, а не в тексте кнопки
+const LIKE_STATES = {
+    like: { icon: 'heart', label: 'Добавить в «Моя музыка»' },
+    liked: { icon: 'heartFilled', label: 'В «Моей музыке»' },
+    busy: { icon: 'busy', label: 'Сохраняем…' },
+    error: { icon: 'error', label: 'Не удалось сохранить — нажмите ещё раз' },
+    trash: { icon: 'trash', label: 'Убрать из «Моей музыки»' }
+};
+
+function setLikeState(btn, state) {
+    btn.dataset.state = state;
+    btn.innerHTML = ICONS[LIKE_STATES[state].icon];
+    btn.setAttribute('aria-label', LIKE_STATES[state].label);
+}
+
+function setPlayPauseIcon(playing) {
+    npPlayPause.innerHTML = playing ? ICONS.pause : ICONS.play;
+    npPlayPause.setAttribute('aria-label', playing ? 'Пауза' : 'Играть');
+}
+
+// Обложка: у видео YouTube — кадр-превью по ID, у своего файла — нота на подложке
+function coverUrl(track, size = 'mqdefault') {
+    if (!track || track.source === 'file' || !track.audio) return '';
+    return `https://i.ytimg.com/vi/${encodeURIComponent(track.audio)}/${size}.jpg`;
+}
+
+function coverNode(track) {
+    const box = document.createElement('div');
+    box.className = 'cover';
+    fillCover(box, track);
+    return box;
+}
+
+function fillCover(box, track) {
+    box.replaceChildren();
+    const url = coverUrl(track);
+    if (url) {
+        const img = document.createElement('img');
+        img.src = url;
+        img.alt = '';
+        img.loading = 'lazy';
+        img.decoding = 'async';
+        img.addEventListener('error', () => { img.remove(); box.innerHTML = ICONS.note; });
+        box.append(img);
+    } else {
+        box.innerHTML = ICONS.note;
+    }
+}
+
+setPlayPauseIcon(false);
+setLikeState(npLike, 'like');
 
 // --- 3. ЗАГРУЗКА YOUTUBE ПЛЕЕРА ---
 let ytPlayer;
@@ -272,7 +341,7 @@ function playerSetVolume(volume) {
 
 function onPlaybackPlaying() {
     gameOnPlaying();
-    npPlayPause.textContent = '⏸️';
+    setPlayPauseIcon(true);
     startProgressLoop();
     if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing';
     updateShowPlayPause();
@@ -280,7 +349,7 @@ function onPlaybackPlaying() {
 
 function onPlaybackPaused() {
     gameOnPaused();
-    npPlayPause.textContent = '▶️';
+    setPlayPauseIcon(false);
     stopProgressLoop();
     if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused';
     updateShowPlayPause();
@@ -288,7 +357,7 @@ function onPlaybackPaused() {
 
 function onPlaybackEnded() {
     stopProgressLoop();
-    npSeek.value = 0;
+    setSeek(0);
     npCurrent.textContent = '0:00';
 
     // Квиз и бинго сами решают, что дальше
@@ -298,7 +367,7 @@ function onPlaybackEnded() {
     }
     // Нон-стоп: сразу включаем следующий трек из того же списка
     if (!playNext()) {
-        npPlayPause.textContent = '▶️';
+        setPlayPauseIcon(false);
         renderShowNow('Блок завершён');
     }
     updateShowPlayPause();
@@ -313,7 +382,7 @@ function onPlaybackError() {
     }
     if (!playNext()) {
         stopProgressLoop();
-        npPlayPause.textContent = '▶️';
+        setPlayPauseIcon(false);
         npTitle.textContent = 'Трек недоступен';
         updateShowPlayPause();
     }
@@ -366,13 +435,15 @@ function setupMediaSession() {
 }
 setupMediaSession();
 
-function updateMediaSession(name, artist) {
+function updateMediaSession(name, artist, track = null) {
     if (!('mediaSession' in navigator)) return;
+    // На экране блокировки — обложка трека, у своих файлов — иконка приложения
+    const cover = coverUrl(track, 'hqdefault');
     try {
         navigator.mediaSession.metadata = new MediaMetadata({
             title: name || '',
             artist: artist || '',
-            artwork: [
+            artwork: cover ? [{ src: cover, sizes: '480x360', type: 'image/jpeg' }] : [
                 { src: 'icon-192.png', sizes: '192x192', type: 'image/png' },
                 { src: 'icon-512.png', sizes: '512x512', type: 'image/png' }
             ]
@@ -388,6 +459,12 @@ function formatTime(seconds) {
     return `${mins}:${secs.toString().padStart(2, '0')}`;
 }
 
+// Позиция ползунка и закрашенная (латунная) часть дорожки до него
+function setSeek(percent) {
+    npSeek.value = percent;
+    npSeek.style.setProperty('--p', `${Number(percent) || 0}%`);
+}
+
 function startProgressLoop() {
     stopProgressLoop();
     progressInterval = setInterval(() => {
@@ -395,7 +472,7 @@ function startProgressLoop() {
         const duration = playerDuration();
         const current = playerTime();
         if (duration > 0) {
-            npSeek.value = (current / duration) * 100;
+            setSeek((current / duration) * 100);
             npDuration.textContent = formatTime(duration);
         }
         npCurrent.textContent = formatTime(current);
@@ -420,12 +497,12 @@ npPlayPause.addEventListener('click', () => {
 
 // «Сердечко» рядом с play/pause — лайк/удаление текущего играющего трека
 npLike.addEventListener('click', async () => {
-    if (npLike.textContent.trim() === '🗑️') {
+    if (npLike.dataset.state === 'trash') {
         if (await handleDelete(npLike) === false) return; // отказались удалять файл
         // Удалённый трек больше не играет по кругу в очереди «Моей музыки»
         const playing = activeQueue && activeQueue[activeQueueIndex];
         if (playing && currentPlayingIsLibrary) playing.unavailable = true;
-        npLike.textContent = '♡';
+        setLikeState(npLike, 'like');
         currentPlayingIsLibrary = false;
         // Удалённый свой файл повторно «лайкнуть» нельзя — прячем кнопку
         if (npLike.dataset.source === 'file') npLike.classList.add('hidden');
@@ -438,6 +515,7 @@ npLike.addEventListener('click', async () => {
 
 npSeek.addEventListener('input', () => {
     isSeeking = true;
+    setSeek(npSeek.value);
     npCurrent.textContent = formatTime((npSeek.value / 100) * playerDuration());
 });
 
@@ -687,6 +765,7 @@ function renderTracks(tracks, isLibrary) {
     tracks.forEach((track, index) => {
         const trackCard = document.createElement('div');
         trackCard.className = track.unavailable ? 'track-card unavailable' : 'track-card';
+        if (activeQueue === tracks && activeQueueIndex === index) trackCard.classList.add('is-playing');
 
         const info = document.createElement('div');
         info.className = 'track-info';
@@ -708,7 +787,8 @@ function renderTracks(tracks, isLibrary) {
 
         const playBtn = document.createElement('button');
         playBtn.className = 'play-btn';
-        playBtn.textContent = '▶️';
+        playBtn.innerHTML = ICONS.play;
+        playBtn.setAttribute('aria-label', `Играть «${track.name}»`);
         Object.assign(playBtn.dataset, {
             index: String(index),
             url: track.audio,
@@ -728,7 +808,7 @@ function renderTracks(tracks, isLibrary) {
 
         const likeBtn = document.createElement('button');
         likeBtn.className = 'like-btn';
-        likeBtn.textContent = isLibrary ? '🗑️' : '♡';
+        setLikeState(likeBtn, isLibrary ? 'trash' : 'like');
         Object.assign(likeBtn.dataset, {
             index: String(index),
             id: track.id,
@@ -742,7 +822,7 @@ function renderTracks(tracks, isLibrary) {
         });
 
         actions.append(playBtn, likeBtn);
-        trackCard.append(info, actions);
+        trackCard.append(coverNode(track), info, actions);
         trackList.appendChild(trackCard);
     });
 }
@@ -757,7 +837,9 @@ function markTrackCardUnavailable(index) {
 
 // --- 8. ДЕЛЕГИРОВАНИЕ СОБЫТИЙ ---
 trackList.addEventListener('click', (e) => {
-    const target = e.target;
+    // Внутри кнопок теперь SVG-иконки — клик приходит в <path>, поднимаемся до кнопки
+    const target = e.target.closest('button');
+    if (!target) return;
 
     if (target.closest('[data-action="channel-back"]')) {
         closeChannel();
@@ -782,8 +864,8 @@ trackList.addEventListener('click', (e) => {
 async function handleLike(btn) {
     const track = btn.dataset;
     // Уже сохранён или сохраняется — повторное нажатие не должно плодить дубли
-    if (['⏳', '❤️'].includes(btn.textContent.trim())) return;
-    btn.innerHTML = '⏳';
+    if (['busy', 'liked'].includes(btn.dataset.state)) return;
+    setLikeState(btn, 'busy');
 
     try {
         const fb = await loadFirebase();
@@ -793,7 +875,7 @@ async function handleLike(btn) {
         const existing = await fb.getDocs(fb.query(fb.collection(fb.db, "liked_tracks"),
             fb.where("uid", "==", uid), fb.where("audioUrl", "==", track.url)));
         if (!existing.empty) {
-            btn.innerHTML = '❤️';
+            setLikeState(btn, 'liked');
             return;
         }
         // Записываем информацию о треке в Firestore, привязывая к текущему пользователю
@@ -807,10 +889,10 @@ async function handleLike(btn) {
             timestamp: Date.now()
         });
 
-        btn.innerHTML = '❤️';
+        setLikeState(btn, 'liked');
     } catch (error) {
         console.error("Ошибка сохранения:", error);
-        btn.innerHTML = '❌';
+        setLikeState(btn, 'error');
     }
 }
 
@@ -1033,12 +1115,21 @@ function playFromList(index, tracks, isLibrary) {
 
     updateNowPlayingLikeButton(track, isLibrary);
     playMusic(track);
+    highlightPlayingCard();
+}
+
+// Подсвечивает в открытом списке трек, который сейчас играет
+function highlightPlayingCard() {
+    trackList.querySelectorAll('.track-card.is-playing').forEach(card => card.classList.remove('is-playing'));
+    if (activeQueue !== currentTracks) return;
+    const btn = trackList.querySelector(`.play-btn[data-index="${activeQueueIndex}"]`);
+    if (btn) btn.closest('.track-card').classList.add('is-playing');
 }
 
 // Синхронизирует «сердечко» внизу с треком, который сейчас играет
 function updateNowPlayingLikeButton(track, isLibrary) {
     currentPlayingIsLibrary = isLibrary;
-    npLike.textContent = isLibrary ? '🗑️' : '♡';
+    setLikeState(npLike, isLibrary ? 'trash' : 'like');
     // Свой файл лайкать некуда — он и так в «Моей музыке»
     npLike.classList.toggle('hidden', track.source === 'file' && !isLibrary);
     Object.assign(npLike.dataset, {
@@ -1085,11 +1176,12 @@ function playMusic(track) {
 
     npTitle.textContent = name || '—';
     npArtist.textContent = artist || '';
-    npSeek.value = 0;
+    fillCover(npCover, track);
+    setSeek(0);
     npCurrent.textContent = '0:00';
     npDuration.textContent = '0:00';
     audioWrapper.classList.remove('hidden');
-    updateMediaSession(name, artist);
+    updateMediaSession(name, artist, track);
     renderShowNow();
 
     console.log("Играет:", name);
@@ -1400,7 +1492,7 @@ function renderEventDetail() {
             el('div', { class: 'block-row' },
                 el('input', { type: 'time', value: block.time || '', dataset: { field: 'time', block: i } }),
                 el('input', { class: 'block-title-input', value: block.title, dataset: { field: 'block-title', block: i } }),
-                el('button', { class: 'play-btn', dataset: { action: 'play-block', block: i }, 'aria-label': 'Запустить блок' }, '▶️')),
+                el('button', { class: 'play-btn', innerHTML: ICONS.play, dataset: { action: 'play-block', block: i }, 'aria-label': 'Запустить блок' })),
             el('div', { class: 'block-row block-tools' },
                 el('select', { dataset: { field: 'loop', block: i } },
                     el('option', { value: 'loop', selected: block.loop }, '🔁 Фон по кругу'),

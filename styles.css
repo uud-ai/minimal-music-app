@@ -1,93 +1,226 @@
-/* --- 1. БАЗОВЫЕ НАСТРОЙКИ (СБРОС И ГРАНИЦЫ) --- */
+/* --- 1. БАЗОВЫЕ НАСТРОЙКИ, ЦВЕТА И ШРИФТЫ --- */
 *, *::before, *::after {
     box-sizing: border-box;
     margin: 0;
     padding: 0;
 }
 
+/* Две темы по настройке телефона: светлая — «программка концерта» (слоновая кость,
+   латунь, чернила), тёмная — «вечерний зал» (тёмно-зелёный лак и латунь).
+   Пульт ведущего (stage-*) тёмный всегда: в полутёмном зале и на проекторе так лучше */
 :root {
-    --ivory: #FFFFF0;
-    --gold: #D4AF37;
-    --dark: #1A1A1A;
-    --gray: #8E8E8E;
-    --light-gold: rgba(212, 175, 55, 0.15); /* Цвет для деликатных линий и ховеров */
+    color-scheme: light dark;
+
+    --bg: #FAF6EA;          /* фон страницы */
+    --surface: #FFFDF6;     /* приподнятые поверхности: плеер, навигация, листы */
+    --tint: #F1EAD6;        /* мягкие заливки: нажатие, подложки, плашки */
+    --line: #E5DBC0;        /* тонкие линии и рамки */
+    --ink: #1E2925;         /* основной текст */
+    --muted: #676D65;       /* второстепенный текст */
+    --accent: #86631A;      /* латунь для текста и иконок (контраст ≥ 4.5:1) */
+    --accent-fill: #C29A3F; /* латунь для заливок кнопок */
+    --on-accent: #1E2018;   /* текст на латунной заливке */
+    --danger: #A8352A;
+    --shadow: 0 14px 34px -16px rgba(60, 44, 8, 0.35);
+
+    --stage-bg: #0F1D1B;
+    --stage-surface: #172A27;
+    --stage-ink: #F2ECDD;
+    --stage-muted: #9AAAA4;
+    --stage-accent: #D8B765;
+    --stage-on-accent: #13201D;
+    --stage-line-soft: rgba(242, 236, 221, 0.08);
+    --stage-line: rgba(242, 236, 221, 0.15);
+    --stage-line-strong: rgba(242, 236, 221, 0.26);
+    --stage-tint: rgba(216, 183, 101, 0.18);
+
+    --font-body: 'Golos Text', system-ui, -apple-system, 'Segoe UI', sans-serif;
+    --font-display: 'Cormorant Garamond', Georgia, 'Times New Roman', serif;
+
+    --nav-h: 62px;
+}
+
+@media (prefers-color-scheme: dark) {
+    :root {
+        --bg: #0F1D1B;
+        --surface: #162926;
+        --tint: #1F3531;
+        --line: #2A413C;
+        --ink: #F1EBDC;
+        --muted: #9CABA5;
+        --accent: #D8B765;
+        --accent-fill: #CDAA55;
+        --on-accent: #13201D;
+        --danger: #E58475;
+        --shadow: 0 16px 36px -14px rgba(0, 0, 0, 0.7);
+    }
 }
 
 html, body {
     width: 100%;
     max-width: 100vw;
     overflow-x: hidden; /* Строго запрещаем скролл по горизонтали */
-    background-color: var(--ivory);
-    /* Подключаем минималистичный шрифт, который мы добавили в HTML */
-    font-family: 'Outfit', 'Segoe UI', sans-serif; 
-    color: var(--dark);
+    background-color: var(--bg);
+    font-family: var(--font-body);
+    color: var(--ink);
+    line-height: 1.4;
+    -webkit-font-smoothing: antialiased;
     -webkit-tap-highlight-color: transparent; /* Убирает синий квадрат при тапе на телефоне */
+}
+
+button, input, select, textarea {
+    font: inherit;
+    color: inherit;
+}
+
+/* Видимый фокус для клавиатуры; касание пальцем рамку не рисует */
+:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
 }
 
 #app {
     width: 100%;
     max-width: 100%;
     overflow-x: hidden;
-    /* Оставляем место внизу, чтобы треки не прятались за плеером, навигацией
-       и зоной жеста Home на iPhone без кнопки */
-    padding-bottom: calc(140px + env(safe-area-inset-bottom));
+    /* Оставляем место внизу, чтобы треки не прятались за плавающим плеером,
+       навигацией и зоной жеста Home на iPhone без кнопки */
+    padding-bottom: calc(var(--nav-h) + 130px + env(safe-area-inset-bottom));
 }
 
 /* --- 2. ШАПКА И ПОИСК --- */
 header {
-    padding: 20px 0; /* Убрали боковые отступы, они теперь у контейнера поиска */
-    border-bottom: 1px solid var(--gold);
-    background-color: var(--ivory);
+    position: relative;
+    padding: calc(14px + env(safe-area-inset-top)) 20px 16px;
+    border-bottom: 1px solid var(--line);
+    background-color: var(--bg);
 }
 
+.header-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 14px;
+}
+
+/* Название — единственный «голос» приложения: курсивная антиква, как на программке */
 header h1 {
-    text-align: center;
-    margin-bottom: 15px;
-    font-weight: 500;
-    letter-spacing: 1px;
+    font-family: var(--font-display);
+    font-style: italic;
+    font-weight: 600;
+    font-size: 2.15rem;
+    line-height: 1;
+    letter-spacing: 0.005em;
+    color: var(--ink);
 }
 
 .search-container {
+    position: relative;
     width: 100%;
-    padding: 0 20px; /* Безопасные отступы, не разрывающие ширину экрана */
+}
+
+.search-icon {
+    position: absolute;
+    left: 14px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--muted);
+    pointer-events: none;
 }
 
 #search-input {
     width: 100%;
     max-width: 100%;
-    padding: 12px 15px;
-    border: 1px solid var(--gold);
-    background: transparent;
-    border-radius: 8px; /* Легкое скругление для мягкости интерфейса */
+    height: 48px;
+    padding: 0 16px 0 44px;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    background: var(--surface);
+    color: var(--ink);
     outline: none;
-    font-size: 16px;
-    font-family: inherit;
-    transition: box-shadow 0.3s ease;
+    font-size: 16px; /* меньше 16px — iOS зумит страницу при фокусе */
+    -webkit-appearance: none;
+    appearance: none;
+    transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+#search-input::placeholder {
+    color: var(--muted);
 }
 
 #search-input:focus {
-    box-shadow: 0 0 8px rgba(212, 175, 55, 0.3); /* Приятное свечение при вводе */
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--tint);
 }
 
 /* --- 3. СПИСОК ТРЕКОВ --- */
-.track-card {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 15px 20px;
-    border-bottom: 1px solid var(--light-gold);
-    background-color: transparent;
-    transition: background 0.3s;
-    width: 100%;
+#track-list {
+    padding: 6px 0;
 }
 
-.track-card:hover, .track-card:active {
-    background-color: var(--light-gold);
+.track-card {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    width: 100%;
+    padding: 9px 12px 9px 20px;
+    background-color: transparent;
+    transition: background-color 0.2s;
+}
+
+.track-card:active {
+    background-color: var(--tint);
+}
+
+@media (hover: hover) {
+    .track-card:hover {
+        background-color: var(--tint);
+    }
+}
+
+/* Обложка: кадр-превью YouTube, у своих файлов — нота на подложке */
+.cover {
+    position: relative;
+    flex: 0 0 auto;
+    width: 52px;
+    height: 52px;
+    border-radius: 10px;
+    overflow: hidden;
+    background: var(--tint);
+    color: var(--muted);
+    display: grid;
+    place-items: center;
+}
+
+.cover img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover; /* превью 16:9 — обрезаем по центру до квадрата */
+    display: block;
+}
+
+.cover svg {
+    width: 24px;
+    height: 24px;
+}
+
+/* Играющий трек: латунная рамка обложки и название цветом акцента */
+.track-card.is-playing .cover {
+    box-shadow: 0 0 0 2px var(--accent-fill);
+}
+
+.track-card.is-playing .track-info strong {
+    color: var(--accent);
 }
 
 /* Трек, который YouTube запретил встраивать — плеер его пропускает */
-.track-card.unavailable .track-info {
+.track-card.unavailable .track-info,
+.track-card.unavailable .cover {
     opacity: 0.4;
+}
+
+.track-card.unavailable .track-info strong {
     text-decoration: line-through;
 }
 
@@ -96,22 +229,22 @@ header h1 {
     flex-direction: column;
     flex: 1; /* Позволяет тексту занимать все свободное пространство... */
     min-width: 0; /* ...НО разрешает тексту обрезаться, если он слишком длинный */
-    margin-right: 15px;
 }
 
 .track-info strong {
-    font-size: 1.1rem;
-    color: var(--dark);
+    font-size: 1rem;
+    line-height: 1.3;
+    color: var(--ink);
     font-weight: 500;
     white-space: nowrap; /* Запрет переноса строк */
     overflow: hidden; /* Скрытие лишнего */
     text-overflow: ellipsis; /* Появление троеточия */
-    margin-bottom: 4px;
+    margin-bottom: 2px;
 }
 
 .track-info span {
-    font-size: 0.9rem;
-    color: var(--gray);
+    font-size: 0.86rem;
+    color: var(--muted);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -123,12 +256,12 @@ header h1 {
     max-width: 100%;
     background: none;
     border: none;
-    padding: 2px 0;
-    font-family: inherit;
-    font-size: 0.9rem;
-    color: var(--gray);
+    padding: 1px 0;
+    font-size: 0.86rem;
+    color: var(--muted);
     text-align: left;
     text-decoration: underline dotted;
+    text-decoration-color: var(--line);
     text-underline-offset: 3px;
     white-space: nowrap;
     overflow: hidden;
@@ -136,8 +269,15 @@ header h1 {
     cursor: pointer;
 }
 
-.track-info .artist-link:hover, .track-info .artist-link:active {
-    color: var(--gold);
+.track-info .artist-link:active {
+    color: var(--accent);
+}
+
+@media (hover: hover) {
+    .track-info .artist-link:hover {
+        color: var(--accent);
+        text-decoration-color: currentColor;
+    }
 }
 
 /* Шапка над треками канала: «← Назад» и название канала */
@@ -146,14 +286,19 @@ header h1 {
     flex-direction: column;
     align-items: flex-start;
     gap: 2px;
-    padding: 12px 20px;
-    border-bottom: 1px solid var(--gold);
+    padding: 6px 20px 14px;
+    margin-bottom: 4px;
+    border-bottom: 1px solid var(--line);
 }
 
 .channel-header strong {
     max-width: 100%;
-    font-weight: 500;
-    color: var(--dark);
+    font-family: var(--font-display);
+    font-style: italic;
+    font-weight: 600;
+    font-size: 1.5rem;
+    line-height: 1.15;
+    color: var(--ink);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -162,53 +307,84 @@ header h1 {
 /* --- 4. КНОПКИ ДЕЙСТВИЙ --- */
 .actions {
     display: flex;
-    gap: 15px;
+    gap: 2px;
     align-items: center;
     flex-shrink: 0; /* Защита кнопок от сжатия, если текст песни длинный */
 }
 
 .play-btn, .like-btn {
+    display: grid;
+    place-items: center;
+    width: 42px;
+    height: 42px;
     background: none;
     border: none;
-    font-size: 1.5rem;
+    border-radius: 50%;
     cursor: pointer;
-    padding: 5px;
-    color: var(--gold);
-    transition: transform 0.2s ease;
+    color: var(--muted);
+    transition: transform 0.15s ease, color 0.2s;
+}
+
+.play-btn {
+    color: var(--accent);
+}
+
+.play-btn svg, .like-btn svg {
+    width: 22px;
+    height: 22px;
+}
+
+.like-btn[data-state="liked"] {
+    color: var(--accent);
+}
+
+.like-btn[data-state="error"] {
+    color: var(--danger);
 }
 
 .play-btn:active, .like-btn:active {
-    transform: scale(0.9); /* Анимация нажатия */
+    transform: scale(0.88); /* Отклик на нажатие */
+}
+
+/* Индикатор «сохраняем» — вращается, если пользователь не просил меньше движения */
+[data-state="busy"] svg {
+    animation: spin 0.9s linear infinite;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    [data-state="busy"] svg {
+        animation: none;
+    }
 }
 
 .status {
     text-align: center;
-    padding: 40px 20px;
-    color: var(--gray);
-    font-style: italic;
+    padding: 48px 28px;
+    color: var(--muted);
 }
 
 /* --- 4.1 КНОПКА "ЕЩЁ" --- */
 #load-more-btn {
     display: block;
     width: calc(100% - 40px);
-    margin: 15px 20px 20px;
+    margin: 12px 20px 20px;
     padding: 12px;
     background: transparent;
-    border: 1px solid var(--gold);
-    border-radius: 8px;
-    color: var(--gold);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    color: var(--accent);
     font-size: 0.95rem;
-    font-family: inherit;
+    font-weight: 500;
     cursor: pointer;
-    transition: background 0.3s, transform 0.2s ease;
-}
-
-#load-more-btn:hover, #load-more-btn:active {
-    background-color: var(--light-gold);
+    transition: background 0.2s, transform 0.15s ease;
 }
 
 #load-more-btn:active {
+    background-color: var(--tint);
     transform: scale(0.98);
 }
 
@@ -222,24 +398,32 @@ header h1 {
     display: none !important;
 }
 
+/* Плавающая карточка над навигацией: обложка, название, латунная кнопка */
 #audio-wrapper {
     position: fixed;
-    bottom: calc(60px + env(safe-area-inset-bottom)); /* Прикреплен ровно над навигацией */
-    left: 0;
-    width: 100%;
-    background-color: var(--ivory);
-    border-top: 1px solid var(--light-gold);
-    padding: 10px 20px;
+    bottom: calc(var(--nav-h) + 8px + env(safe-area-inset-bottom));
+    left: 10px;
+    right: 10px;
+    max-width: 640px;
+    margin: 0 auto;
+    background-color: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 18px;
+    padding: 10px 12px 8px 10px;
     z-index: 100;
-    /* Легкая тень, чтобы отделить плеер от контента под ним */
-    box-shadow: 0 -4px 10px rgba(0, 0, 0, 0.03);
+    box-shadow: var(--shadow);
 }
 
 .np-top {
     display: flex;
     align-items: center;
-    justify-content: space-between;
     gap: 12px;
+}
+
+#np-cover {
+    width: 46px;
+    height: 46px;
+    border-radius: 10px;
 }
 
 .np-info {
@@ -252,7 +436,7 @@ header h1 {
 .np-info strong {
     font-size: 0.95rem;
     font-weight: 500;
-    color: var(--dark);
+    color: var(--ink);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -260,7 +444,7 @@ header h1 {
 
 .np-info span {
     font-size: 0.8rem;
-    color: var(--gray);
+    color: var(--muted);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -269,23 +453,46 @@ header h1 {
 .np-controls {
     display: flex;
     align-items: center;
-    gap: 4px;
+    gap: 6px;
     flex-shrink: 0;
 }
 
 #np-playpause, #np-like {
     flex-shrink: 0;
-    background: none;
+    display: grid;
+    place-items: center;
     border: none;
-    font-size: 1.6rem;
-    line-height: 1;
+    border-radius: 50%;
     cursor: pointer;
-    padding: 4px;
-    color: var(--gold);
+    transition: transform 0.15s ease;
 }
 
 #np-like {
-    font-size: 1.4rem;
+    width: 40px;
+    height: 40px;
+    background: none;
+    color: var(--muted);
+}
+
+#np-like[data-state="liked"] {
+    color: var(--accent);
+}
+
+#np-like svg {
+    width: 22px;
+    height: 22px;
+}
+
+#np-playpause {
+    width: 46px;
+    height: 46px;
+    background: var(--accent-fill);
+    color: var(--on-accent);
+}
+
+#np-playpause svg {
+    width: 22px;
+    height: 22px;
 }
 
 #np-playpause:active, #np-like:active {
@@ -301,18 +508,20 @@ header h1 {
 
 .np-progress span {
     font-size: 0.7rem;
-    color: var(--gray);
+    color: var(--muted);
     min-width: 32px;
     text-align: center;
+    font-variant-numeric: tabular-nums;
 }
 
 #np-seek {
     flex: 1;
     -webkit-appearance: none;
     appearance: none;
-    height: 4px;
+    height: 3px;
     border-radius: 2px;
-    background: var(--light-gold);
+    /* Сыгранная часть — латунью; --p выставляет main.js */
+    background: linear-gradient(to right, var(--accent-fill) var(--p, 0%), var(--line) var(--p, 0%));
     outline: none;
     cursor: pointer;
 }
@@ -320,30 +529,26 @@ header h1 {
 #np-seek::-webkit-slider-thumb {
     -webkit-appearance: none;
     appearance: none;
-    width: 12px;
-    height: 12px;
+    width: 13px;
+    height: 13px;
     border-radius: 50%;
-    background: var(--gold);
+    background: var(--accent-fill);
     cursor: pointer;
 }
 
 #np-seek::-moz-range-thumb {
-    width: 12px;
-    height: 12px;
+    width: 13px;
+    height: 13px;
     border: none;
     border-radius: 50%;
-    background: var(--gold);
+    background: var(--accent-fill);
     cursor: pointer;
 }
 
-#main-player {
-    width: 100%;
-    outline: none;
-}
-
-/* Кастомизация фона стандартного HTML-плеера в браузерах Webkit (Chrome/Safari) */
-audio::-webkit-media-controls-panel {
-    background-color: var(--ivory);
+#np-seek::-moz-range-progress {
+    height: 3px;
+    border-radius: 2px;
+    background: var(--accent-fill);
 }
 
 /* --- 6. НИЖНЯЯ НАВИГАЦИЯ --- */
@@ -352,41 +557,40 @@ audio::-webkit-media-controls-panel {
     bottom: 0;
     left: 0;
     width: 100%;
-    height: calc(60px + env(safe-area-inset-bottom));
+    height: calc(var(--nav-h) + env(safe-area-inset-bottom));
     padding-bottom: env(safe-area-inset-bottom);
     display: flex;
-    background: var(--ivory);
-    border-top: 1px solid var(--gold);
+    background: var(--surface);
+    border-top: 1px solid var(--line);
     z-index: 110;
 }
 
 .bottom-nav button {
     flex: 1;
-    padding: 5px;
+    padding: 6px 4px;
     border: none;
     background: none;
-    color: var(--gray);
+    color: var(--muted);
     display: flex;
     flex-direction: column; /* Иконка над текстом */
     align-items: center;
     justify-content: center;
-    gap: 4px;
-    font-size: 0.75rem;
-    text-transform: uppercase;
-    letter-spacing: 1px;
-    font-family: inherit;
+    gap: 3px;
+    font-size: 0.74rem;
     cursor: pointer;
-    transition: color 0.3s;
+    transition: color 0.2s;
 }
 
 .bottom-nav button .icon {
-    font-size: 1.2rem;
+    width: 24px;
+    height: 24px;
 }
 
 .bottom-nav button.active {
-    color: var(--gold);
-    font-weight: 500;
+    color: var(--accent);
+    font-weight: 600;
 }
+
 /* --- 7. ВЫБОР ТРЕКОВ ДЛЯ БЛОКА --- */
 #pick-banner {
     position: sticky;
@@ -397,8 +601,8 @@ audio::-webkit-media-controls-panel {
     justify-content: space-between;
     gap: 12px;
     padding: 10px 20px;
-    background: var(--ivory);
-    border-bottom: 1px solid var(--gold);
+    background: var(--bg);
+    border-bottom: 1px solid var(--accent);
     font-size: 0.9rem;
 }
 
@@ -411,18 +615,18 @@ audio::-webkit-media-controls-panel {
 
 .add-btn {
     background: none;
-    border: 1px solid var(--gold);
+    border: 1px solid var(--accent);
     border-radius: 50%;
     width: 34px;
     height: 34px;
     font-size: 1.1rem;
-    color: var(--gold);
+    color: var(--accent);
     cursor: pointer;
 }
 
 .add-btn:disabled {
-    background: var(--gold);
-    color: var(--ivory);
+    background: var(--accent-fill);
+    color: var(--bg);
     cursor: default;
 }
 
@@ -437,23 +641,23 @@ audio::-webkit-media-controls-panel {
     font-family: inherit;
     font-size: 0.95rem;
     cursor: pointer;
-    border: 1px solid var(--gold);
+    border: 1px solid var(--accent);
 }
 
 .primary-btn {
-    background: var(--gold);
-    color: #fff;
+    background: var(--accent-fill);
+    color: var(--on-accent);
 }
 
 .ghost-btn {
     background: transparent;
-    color: var(--gold);
+    color: var(--accent);
 }
 
 .link-btn {
     background: none;
     border: none;
-    color: var(--gold);
+    color: var(--accent);
     font-family: inherit;
     font-size: 0.95rem;
     cursor: pointer;
@@ -464,16 +668,16 @@ audio::-webkit-media-controls-panel {
     font-family: inherit;
     font-size: 16px; /* меньше 16px — iOS зумит страницу при фокусе */
     padding: 8px 10px;
-    border: 1px solid var(--light-gold);
+    border: 1px solid var(--line);
     border-radius: 8px;
     background: transparent;
-    color: var(--dark);
+    color: var(--ink);
     min-width: 0;
 }
 
 #events-view input:focus, #events-view select:focus {
     outline: none;
-    border-color: var(--gold);
+    border-color: var(--accent);
 }
 
 .event-create {
@@ -482,7 +686,7 @@ audio::-webkit-media-controls-panel {
     gap: 10px;
     padding-bottom: 20px;
     margin-bottom: 10px;
-    border-bottom: 1px solid var(--light-gold);
+    border-bottom: 1px solid var(--line);
 }
 
 .event-create-row {
@@ -502,10 +706,10 @@ audio::-webkit-media-controls-panel {
     padding: 14px 0;
     background: none;
     border: none;
-    border-bottom: 1px solid var(--light-gold);
+    border-bottom: 1px solid var(--line);
     text-align: left;
     font-family: inherit;
-    color: var(--dark);
+    color: var(--ink);
     cursor: pointer;
 }
 
@@ -529,7 +733,7 @@ audio::-webkit-media-controls-panel {
 
 .event-card-info span {
     font-size: 0.85rem;
-    color: var(--gray);
+    color: var(--muted);
 }
 
 .event-header {
@@ -540,8 +744,11 @@ audio::-webkit-media-controls-panel {
 }
 
 #events-view .event-title-input {
-    font-size: 1.3rem;
-    font-weight: 500;
+    font-size: 1.75rem;
+    line-height: 1.1;
+    font-family: var(--font-display);
+    font-style: italic;
+    font-weight: 600;
     border-color: transparent;
     padding-left: 0;
 }
@@ -551,7 +758,7 @@ audio::-webkit-media-controls-panel {
     align-items: center;
     justify-content: space-between;
     gap: 10px;
-    color: var(--gray);
+    color: var(--muted);
 }
 
 .event-actions {
@@ -564,7 +771,7 @@ audio::-webkit-media-controls-panel {
 }
 
 .block-card {
-    border: 1px solid var(--light-gold);
+    border: 1px solid var(--line);
     border-radius: 12px;
     padding: 12px;
     margin-bottom: 12px;
@@ -572,8 +779,8 @@ audio::-webkit-media-controls-panel {
 }
 
 .block-card.playing {
-    border-color: var(--gold);
-    background: var(--light-gold);
+    border-color: var(--accent);
+    background: var(--tint);
 }
 
 .block-row {
@@ -605,9 +812,9 @@ audio::-webkit-media-controls-panel {
     width: 32px;
     height: 32px;
     background: none;
-    border: 1px solid var(--light-gold);
+    border: 1px solid var(--line);
     border-radius: 8px;
-    color: var(--gold);
+    color: var(--accent);
     cursor: pointer;
     font-size: 0.9rem;
 }
@@ -641,7 +848,7 @@ audio::-webkit-media-controls-panel {
 .block-empty {
     margin: 10px 0 4px;
     font-size: 0.85rem;
-    color: var(--gray);
+    color: var(--muted);
     font-style: italic;
 }
 
@@ -660,8 +867,8 @@ audio::-webkit-media-controls-panel {
     flex-direction: column;
     gap: 14px;
     padding: calc(12px + env(safe-area-inset-top)) 16px calc(12px + env(safe-area-inset-bottom));
-    background: var(--dark);
-    color: var(--ivory);
+    background: var(--stage-bg);
+    color: var(--stage-ink);
     transform: translateX(-200vw);
 }
 
@@ -695,14 +902,14 @@ body.show-open {
 }
 
 #show-clock {
-    color: var(--gold);
+    color: var(--stage-accent);
     font-variant-numeric: tabular-nums;
 }
 
 #show-close {
     background: none;
     border: none;
-    color: var(--ivory);
+    color: var(--stage-ink);
     font-size: 1.4rem;
     cursor: pointer;
     padding: 4px 8px;
@@ -737,18 +944,19 @@ body.show-open {
 
 .show-label {
     font-size: 0.75rem;
-    letter-spacing: 2px;
-    text-transform: uppercase;
-    color: var(--gold);
+    color: var(--stage-accent);
 }
 
 #show-block-title {
-    font-size: 1.7rem;
-    font-weight: 500;
+    font-size: 2.3rem;
+    line-height: 1.1;
+    font-family: var(--font-display);
+    font-style: italic;
+    font-weight: 600;
 }
 
 #show-track-title {
-    color: var(--gray);
+    color: var(--stage-muted);
     font-size: 0.95rem;
     min-height: 1.2em;
 }
@@ -762,18 +970,18 @@ body.show-open {
 .show-controls button {
     padding: 16px 8px;
     border-radius: 12px;
-    border: 1px solid rgba(255, 255, 240, 0.25);
+    border: 1px solid var(--stage-line-strong);
     background: transparent;
-    color: var(--ivory);
+    color: var(--stage-ink);
     font-family: inherit;
     font-size: 1rem;
     cursor: pointer;
 }
 
 #show-next {
-    background: var(--gold);
-    border-color: var(--gold);
-    color: var(--dark);
+    background: var(--stage-accent);
+    border-color: var(--stage-accent);
+    color: var(--stage-on-accent);
     font-weight: 500;
 }
 
@@ -796,8 +1004,8 @@ body.show-open {
     padding: 12px 10px;
     background: none;
     border: none;
-    border-bottom: 1px solid rgba(255, 255, 240, 0.08);
-    color: var(--ivory);
+    border-bottom: 1px solid var(--stage-line-soft);
+    color: var(--stage-ink);
     font-family: inherit;
     font-size: 1rem;
     text-align: left;
@@ -805,13 +1013,13 @@ body.show-open {
 }
 
 .show-block.current {
-    background: rgba(212, 175, 55, 0.2);
+    background: var(--stage-tint);
     border-radius: 8px;
 }
 
 .show-block-time {
     width: 48px;
-    color: var(--gray);
+    color: var(--stage-muted);
     font-variant-numeric: tabular-nums;
 }
 
@@ -826,73 +1034,71 @@ body.show-open {
     flex-direction: column;
     gap: 6px;
     padding: 14px 20px;
-    border-bottom: 1px solid var(--light-gold);
+    border-bottom: 1px solid var(--line);
 }
 
 .upload-btn {
     display: block;
     padding: 12px;
-    border: 1px dashed var(--gold);
+    border: 1px dashed var(--accent);
     border-radius: 8px;
-    color: var(--gold);
+    color: var(--accent);
     text-align: center;
     cursor: pointer;
     transition: background 0.3s;
 }
 
 .upload-btn:hover, .upload-btn:active {
-    background: var(--light-gold);
+    background: var(--tint);
 }
 
 #upload-status {
     font-size: 0.8rem;
-    color: var(--gray);
+    color: var(--muted);
     text-align: center;
 }
 
 /* --- 11. ОФЛАЙН --- */
 .offline-status {
     font-size: 0.8rem;
-    color: var(--gray);
+    color: var(--muted);
     text-align: center;
 }
 
 .offline-note {
     padding: 8px 12px;
     border-radius: 8px;
-    background: var(--light-gold);
+    background: var(--tint);
     font-size: 0.85rem;
     text-align: center;
 }
 
 /* --- 12. АККАУНТ --- */
-header {
-    position: relative;
-}
-
 #account-btn {
-    position: absolute;
-    top: 18px;
-    right: 20px;
-    min-width: 36px;
-    height: 36px;
-    padding: 0 12px;
-    border: 1px solid var(--gold);
-    border-radius: 18px;
-    background: transparent;
-    color: var(--gold);
-    font-family: inherit;
-    font-size: 0.85rem;
+    flex-shrink: 0;
+    min-width: 38px;
+    height: 38px;
+    padding: 0 14px;
+    border: 1px solid var(--line);
+    border-radius: 19px;
+    background: var(--surface);
+    color: var(--accent);
+    font-size: 0.88rem;
+    font-weight: 500;
     cursor: pointer;
 }
 
+/* Вошли — кружок с первой буквой имени, как монограмма */
 #account-btn.signed-in {
-    width: 36px;
+    width: 38px;
     padding: 0;
-    background: var(--gold);
-    color: #fff;
-    font-size: 1rem;
-    font-weight: 500;
+    border-color: transparent;
+    background: var(--accent-fill);
+    color: var(--on-accent);
+    font-family: var(--font-display);
+    font-style: italic;
+    font-size: 1.3rem;
+    font-weight: 600;
 }
 
 #account-sheet {
@@ -902,7 +1108,7 @@ header {
     display: flex;
     align-items: flex-end;
     justify-content: center;
-    background: rgba(26, 26, 26, 0.4);
+    background: rgba(10, 18, 16, 0.5);
 }
 
 .sheet-card {
@@ -916,7 +1122,7 @@ header {
     gap: 12px;
     padding: 24px 20px calc(20px + env(safe-area-inset-bottom));
     border-radius: 16px 16px 0 0;
-    background: var(--ivory);
+    background: var(--surface);
 }
 
 @media (min-width: 600px) {
@@ -930,8 +1136,11 @@ header {
 }
 
 .sheet-card h2 {
-    font-weight: 500;
-    font-size: 1.3rem;
+    font-family: var(--font-display);
+    font-style: italic;
+    font-weight: 600;
+    font-size: 1.8rem;
+    line-height: 1.1;
 }
 
 .sheet-close {
@@ -941,13 +1150,13 @@ header {
     background: none;
     border: none;
     font-size: 1.2rem;
-    color: var(--gray);
+    color: var(--muted);
     cursor: pointer;
 }
 
 .account-hint, .account-email {
     font-size: 0.9rem;
-    color: var(--gray);
+    color: var(--muted);
 }
 
 .google-btn {
@@ -959,7 +1168,7 @@ header {
     border: 1px solid #dadce0;
     border-radius: 8px;
     background: #fff;
-    color: var(--dark);
+    color: #1f1f1f; /* кнопка Google по их правилам белая в обеих темах */
     font-family: inherit;
     font-size: 1rem;
     cursor: pointer;
@@ -974,14 +1183,14 @@ header {
     display: flex;
     align-items: center;
     gap: 10px;
-    color: var(--gray);
+    color: var(--muted);
     font-size: 0.8rem;
 }
 
 .account-divider::before, .account-divider::after {
     content: '';
     flex: 1;
-    border-top: 1px solid var(--light-gold);
+    border-top: 1px solid var(--line);
 }
 
 .account-form {
@@ -992,17 +1201,17 @@ header {
 
 .account-form input {
     padding: 12px;
-    border: 1px solid var(--light-gold);
+    border: 1px solid var(--line);
     border-radius: 8px;
     background: transparent;
     font-family: inherit;
     font-size: 16px; /* меньше 16px — iOS зумит страницу при фокусе */
-    color: var(--dark);
+    color: var(--ink);
 }
 
 .account-form input:focus {
     outline: none;
-    border-color: var(--gold);
+    border-color: var(--accent);
 }
 
 .account-row {
@@ -1021,12 +1230,12 @@ header {
 .account-status {
     min-height: 1.2em;
     font-size: 0.85rem;
-    color: var(--gray);
+    color: var(--muted);
     text-align: center;
 }
 
 .account-status.error {
-    color: #c0392b;
+    color: var(--danger);
 }
 
 .sheet-card button:disabled {
@@ -1036,7 +1245,7 @@ header {
 
 /* --- 13. ЗАКАЗЫ ГОСТЕЙ (организатор) --- */
 .requests-panel {
-    border: 1px solid var(--light-gold);
+    border: 1px solid var(--line);
     border-radius: 12px;
     padding: 12px;
     margin-bottom: 16px;
@@ -1059,14 +1268,14 @@ header {
     align-items: center;
     gap: 8px;
     font-size: 0.85rem;
-    color: var(--gray);
+    color: var(--muted);
     cursor: pointer;
 }
 
 .switch input {
     width: 20px;
     height: 20px;
-    accent-color: var(--gold);
+    accent-color: var(--accent);
 }
 
 .requests-share {
@@ -1098,7 +1307,7 @@ header {
 
 .requests-hint, .requests-empty {
     font-size: 0.85rem;
-    color: var(--gray);
+    color: var(--muted);
 }
 
 .requests-target-row {
@@ -1107,14 +1316,14 @@ header {
     gap: 8px;
     margin: 8px 0;
     font-size: 0.85rem;
-    color: var(--gray);
+    color: var(--muted);
 }
 
 .requests-target {
     flex: 1;
     min-width: 0;
     padding: 6px 8px;
-    border: 1px solid var(--light-gold);
+    border: 1px solid var(--line);
     border-radius: 8px;
     background: transparent;
     font-family: inherit;
@@ -1131,7 +1340,7 @@ header {
     align-items: center;
     gap: 8px;
     padding: 8px 0;
-    border-bottom: 1px solid var(--light-gold);
+    border-bottom: 1px solid var(--line);
 }
 
 .request-info {
@@ -1150,39 +1359,39 @@ header {
 
 .request-info span {
     font-size: 0.8rem;
-    color: var(--gray);
+    color: var(--muted);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
 
 .request-count {
-    color: var(--gold);
+    color: var(--accent);
 }
 
 .mini-btn.accept {
-    background: var(--gold);
-    border-color: var(--gold);
-    color: #fff;
+    background: var(--accent-fill);
+    border-color: var(--accent);
+    color: var(--on-accent);
 }
 
 /* В режиме ведущего: кнопка-счётчик, панель заказов, QR на весь экран */
 #show-requests {
     margin-left: auto;
     padding: 6px 12px;
-    border: 1px solid rgba(255, 255, 240, 0.25);
+    border: 1px solid var(--stage-line-strong);
     border-radius: 16px;
     background: none;
-    color: var(--ivory);
+    color: var(--stage-ink);
     font-family: inherit;
     font-size: 0.95rem;
     cursor: pointer;
 }
 
 #show-requests.has-new {
-    background: var(--gold);
-    border-color: var(--gold);
-    color: var(--dark);
+    background: var(--stage-accent);
+    border-color: var(--stage-accent);
+    color: var(--stage-on-accent);
 }
 
 #show-requests-panel {
@@ -1194,8 +1403,9 @@ header {
     overflow-y: auto;
     padding: 16px 16px calc(16px + env(safe-area-inset-bottom));
     border-radius: 16px 16px 0 0;
-    background: var(--ivory);
-    color: var(--dark);
+    /* Лист заказов поверх пульта — в цветах текущей темы */
+    background: var(--surface);
+    color: var(--ink);
     box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.3);
 }
 
@@ -1222,8 +1432,8 @@ header {
     justify-content: center;
     gap: 16px;
     padding: 24px;
-    background: var(--dark);
-    color: var(--ivory);
+    background: var(--stage-bg);
+    color: var(--stage-ink);
     text-align: center;
 }
 
@@ -1233,18 +1443,21 @@ header {
 }
 
 .qr-title {
-    font-size: 1.8rem;
-    font-weight: 500;
+    font-size: 2.6rem;
+    line-height: 1.1;
+    font-family: var(--font-display);
+    font-style: italic;
+    font-weight: 600;
 }
 
 .qr-event {
     font-size: 1.1rem;
-    color: var(--gold);
+    color: var(--stage-accent);
 }
 
 .qr-url {
     font-size: 0.85rem;
-    color: var(--gray);
+    color: var(--stage-muted);
     word-break: break-all;
 }
 
@@ -1260,15 +1473,16 @@ header {
 }
 
 .guest-label {
-    color: var(--gold);
+    color: var(--accent);
     font-size: 0.85rem;
-    letter-spacing: 1px;
-    text-transform: uppercase;
 }
 
 #guest-view h1 {
-    font-size: 1.6rem;
-    font-weight: 500;
+    font-size: 2.1rem;
+    line-height: 1.1;
+    font-family: var(--font-display);
+    font-style: italic;
+    font-weight: 600;
     margin: 4px 0 16px;
 }
 
@@ -1287,17 +1501,17 @@ header {
 .guest-form input {
     width: 100%;
     padding: 12px;
-    border: 1px solid var(--light-gold);
+    border: 1px solid var(--line);
     border-radius: 8px;
     background: transparent;
     font-family: inherit;
     font-size: 16px;
-    color: var(--dark);
+    color: var(--ink);
 }
 
 .guest-form input:focus {
     outline: none;
-    border-color: var(--gold);
+    border-color: var(--accent);
 }
 
 .guest-search, .guest-text {
@@ -1318,17 +1532,17 @@ header {
 .guest-status {
     min-height: 1.2em;
     font-size: 0.9rem;
-    color: var(--gold);
+    color: var(--accent);
 }
 
 .guest-status.error {
-    color: #c0392b;
+    color: var(--danger);
 }
 
 .guest-closed {
     padding: 16px;
     border-radius: 12px;
-    background: var(--light-gold);
+    background: var(--tint);
     text-align: center;
 }
 
@@ -1341,7 +1555,7 @@ header {
     justify-content: space-between;
     gap: 12px;
     padding: 10px 0;
-    border-bottom: 1px solid var(--light-gold);
+    border-bottom: 1px solid var(--line);
 }
 
 .guest-req span:first-child {
@@ -1354,11 +1568,11 @@ header {
 .guest-req-status {
     flex-shrink: 0;
     font-size: 0.85rem;
-    color: var(--gray);
+    color: var(--muted);
 }
 
 .guest-req.accepted .guest-req-status {
-    color: var(--gold);
+    color: var(--accent);
     font-weight: 500;
 }
 
@@ -1375,8 +1589,8 @@ header {
     display: flex;
     align-items: center;
     justify-content: center;
-    background: #111;
-    color: var(--gold);
+    background: var(--stage-surface);
+    color: var(--stage-accent);
     font-size: 5rem;
     font-weight: 500;
 }
@@ -1390,7 +1604,7 @@ header {
     flex-direction: column;
     gap: 10px;
     padding: 12px;
-    border: 1px solid rgba(255, 255, 240, 0.15);
+    border: 1px solid var(--stage-line);
     border-radius: 12px;
     max-height: 32vh;
     overflow-y: auto;
@@ -1406,13 +1620,13 @@ header {
 .game-hint {
     flex: 1;
     min-width: 0;
-    color: var(--gray);
+    color: var(--stage-muted);
     font-size: 0.9rem;
 }
 
 .quiz-answer {
     width: 100%;
-    color: var(--gold);
+    color: var(--stage-accent);
     font-size: 1.1rem;
     font-weight: 500;
 }
@@ -1420,19 +1634,19 @@ header {
 .game-btn {
     flex: 1;
     padding: 12px 10px;
-    border: 1px solid rgba(255, 255, 240, 0.25);
+    border: 1px solid var(--stage-line-strong);
     border-radius: 10px;
     background: transparent;
-    color: var(--ivory);
+    color: var(--stage-ink);
     font-family: inherit;
     font-size: 0.95rem;
     cursor: pointer;
 }
 
 .game-btn.primary {
-    background: var(--gold);
-    border-color: var(--gold);
-    color: var(--dark);
+    background: var(--stage-accent);
+    border-color: var(--stage-accent);
+    color: var(--stage-on-accent);
     font-weight: 500;
 }
 
@@ -1462,10 +1676,10 @@ header {
     flex: 1;
     min-width: 0;
     padding: 6px 8px;
-    border: 1px solid rgba(255, 255, 240, 0.15);
+    border: 1px solid var(--stage-line);
     border-radius: 8px;
     background: transparent;
-    color: var(--ivory);
+    color: var(--stage-ink);
     font-family: inherit;
     font-size: 16px;
 }
@@ -1474,18 +1688,18 @@ header {
     min-width: 32px;
     text-align: center;
     font-size: 1.3rem;
-    color: var(--gold);
+    color: var(--stage-accent);
     font-variant-numeric: tabular-nums;
 }
 
 .bingo-played {
     padding-left: 28px;
-    color: var(--ivory);
+    color: var(--stage-ink);
     font-size: 0.9rem;
 }
 
 .bingo-played li:first-child {
-    color: var(--gold);
+    color: var(--stage-accent);
     font-weight: 500;
 }
 
@@ -1518,8 +1732,8 @@ header {
     padding: 18px 40px;
     border: none;
     border-radius: 16px;
-    background: var(--gold);
-    color: var(--dark);
+    background: var(--stage-accent);
+    color: var(--stage-on-accent);
     font-family: inherit;
     font-size: 1.4rem;
     font-weight: 500;
@@ -1540,7 +1754,7 @@ header {
 .block-game-hint {
     margin-top: 6px;
     font-size: 0.8rem;
-    color: var(--gray);
+    color: var(--muted);
 }
 
 .block-card .block-row .ghost-btn {
@@ -1569,10 +1783,10 @@ header {
     align-items: center;
     justify-content: center;
     padding: 4px;
-    border: 1px solid var(--gold);
+    border: 1px solid var(--accent);
     border-radius: 8px;
-    background: #fff;
-    color: var(--dark);
+    background: var(--surface);
+    color: var(--ink);
     font-family: inherit;
     font-size: 0.8rem;
     line-height: 1.15;
@@ -1583,16 +1797,16 @@ header {
 }
 
 .bingo-cell.marked {
-    background: var(--gold);
-    color: #fff;
+    background: var(--accent-fill);
+    color: var(--on-accent);
     font-weight: 500;
 }
 
 .bingo-banner {
     padding: 16px;
     border-radius: 12px;
-    background: var(--gold);
-    color: #fff;
+    background: var(--accent-fill);
+    color: var(--on-accent);
     font-size: 1.1rem;
     font-weight: 500;
     text-align: center;
@@ -1603,6 +1817,16 @@ header {
 }
 
 @media print {
+    :root {
+        --bg: #fff;
+        --surface: #fff;
+        --ink: #111;
+        --muted: #555;
+        --accent: #6b5214;
+        --accent-fill: #c9a24a;
+        --on-accent: #111;
+    }
+
     body > *:not(#print-area) {
         display: none !important;
     }
