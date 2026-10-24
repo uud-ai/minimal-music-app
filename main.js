@@ -192,6 +192,7 @@ const ICONS = {
     medal: svg('<circle cx="12" cy="15" r="5"/><path d="M8.5 3.5 12 10l3.5-6.5"/><path d="M12 12.6l.8 1.5 1.6.2-1.2 1.1.3 1.6-1.5-.8-1.5.8.3-1.6-1.2-1.1 1.6-.2z" fill="currentColor" stroke="none"/>'),
     rings: svg('<circle cx="9" cy="14.5" r="5"/><circle cx="15" cy="14.5" r="5"/><path d="M10.5 4.5h3L15 6.8l-3 2.2-3-2.2z"/>'),
     shuffle: svg('<path d="M16.5 4.5 20 8l-3.5 3.5M4 8h3.2c2 0 3.2 1 4.3 2.7l1 1.6c1.1 1.7 2.3 2.7 4.3 2.7H20M16.5 12.5 20 16l-3.5 3.5M4 16h3.2c1.4 0 2.4-.5 3.2-1.4M13.6 9.4c.8-.9 1.8-1.4 3.2-1.4"/>'),
+    chevron: svg('<path d="m6 9.5 6 6 6-6"/>'),
     calendar: svg('<rect x="4" y="5.5" width="16" height="14.5" rx="2.5"/><path d="M4 10h16M8.5 3.5v4M15.5 3.5v4"/>')
 };
 
@@ -200,7 +201,8 @@ function ico(name, cls = 'ic') {
     const t = document.createElement('template');
     t.innerHTML = ICONS[name];
     const node = t.content.firstChild;
-    node.classList.add(cls);
+    node.classList.add('ic');
+    if (cls !== 'ic') node.classList.add(cls);
     return node;
 }
 
@@ -2019,8 +2021,11 @@ function renderEventDetail() {
         eventsOffline ? el('p', { class: 'offline-note' }, 'Нет сети — открыта скачанная копия, изменения не сохранятся') : null);
     renderOfflineStatus(ev, offlineStatus);
 
+    // Сценарий — лента времени: у каждого блока строка «время · название · что звучит»
+    // и кнопка запуска; настройки блока раскрываются по нажатию на строку
     const blocks = ev.blocks.map((block, i) => {
         const isPlaying = playingBlock && playingBlock.eventId === ev.id && playingBlock.blockId === block.id;
+        const isOpen = openBlockId === block.id;
         const tracks = block.tracks.length === 0
             ? el('p', { class: 'block-empty' }, 'Без музыки — тишина')
             : el('ol', { class: 'block-tracks' }, ...block.tracks.map((track, t) =>
@@ -2029,11 +2034,21 @@ function renderEventDetail() {
                     el('span', { class: 'block-track-name' }, track.source === 'file' ? ico('folder') : null, track.name),
                     el('button', { class: 'mini-btn', dataset: { action: 'remove-track', block: i, track: t }, 'aria-label': 'Убрать' }, ico('close')))));
 
-        return el('div', { class: isPlaying ? 'block-card playing' : 'block-card' },
+        const head = el('div', { class: 'tl-row' },
+            el('button', { class: 'tl-head', dataset: { action: 'toggle-block', block: i }, 'aria-expanded': String(isOpen) },
+                el('span', { class: block.time ? 'tl-time' : 'tl-time empty' }, block.time || '—'),
+                el('span', { class: 'tl-main' },
+                    el('span', { class: 'tl-title' }, block.title),
+                    el('span', { class: 'tl-sub' }, ico(blockKindIcon(block)), blockSummary(block))),
+                ico('chevron', 'tl-chevron')),
+            el('button', { class: 'play-btn', innerHTML: ICONS.play, dataset: { action: 'play-block', block: i }, 'aria-label': `Запустить «${block.title}»` }));
+
+        if (!isOpen) return el('div', { class: isPlaying ? 'tl-block playing' : 'tl-block' }, head);
+
+        const body = el('div', { class: 'tl-body' },
             el('div', { class: 'block-row' },
-                el('input', { type: 'time', value: block.time || '', dataset: { field: 'time', block: i } }),
-                el('input', { class: 'block-title-input', value: block.title, dataset: { field: 'block-title', block: i } }),
-                el('button', { class: 'play-btn', innerHTML: ICONS.play, dataset: { action: 'play-block', block: i }, 'aria-label': 'Запустить блок' })),
+                el('input', { type: 'time', value: block.time || '', dataset: { field: 'time', block: i }, 'aria-label': 'Время' }),
+                el('input', { class: 'block-title-input', value: block.title, dataset: { field: 'block-title', block: i }, 'aria-label': 'Название блока' })),
             el('div', { class: 'block-row block-tools' },
                 el('select', { dataset: { field: 'loop', block: i } },
                     el('option', { value: 'loop', selected: block.loop }, 'Фон по кругу'),
@@ -2051,11 +2066,32 @@ function renderEventDetail() {
                 el('button', { class: 'ghost-btn', dataset: { action: 'bingo-qr', block: i } }, ico('phone'), 'На телефоны')) : null,
             tracks,
             el('button', { class: 'link-btn', dataset: { action: 'pick', block: i } }, ico('plus'), 'Добавить трек'));
+        return el('div', { class: `tl-block open${isPlaying ? ' playing' : ''}` }, head, body);
     });
 
     renderRequestsPanel();
-    eventsView.replaceChildren(header, requestsPanel, ...blocks,
+    eventsView.replaceChildren(header, requestsPanel,
+        el('h3', { class: 'timeline-title' }, 'Программа вечера'),
+        el('div', { class: 'timeline' }, ...blocks),
         el('button', { class: 'ghost-btn add-block-btn', dataset: { action: 'add-block' } }, ico('plus'), 'Добавить блок'));
+}
+
+// Какой блок раскрыт на ленте (настройки видны только у него)
+let openBlockId = null;
+
+function blockKindIcon(block) {
+    if (block.game && block.tracks.length) return GAMES[block.game].icon;
+    if (block.tracks.length === 0) return 'silence';
+    return block.loop ? 'loop' : 'signal';
+}
+
+// Что звучит в блоке — одной строкой под названием
+function blockSummary(block) {
+    const n = block.tracks.length;
+    if (n === 0) return 'Тишина';
+    const count = `${n} ${plural(n, 'трек', 'трека', 'треков')}`;
+    if (block.game) return `${GAMES[block.game].label} · ${count}`;
+    return `${count} · ${block.loop ? 'по кругу' : 'один раз'}`;
 }
 
 eventsView.addEventListener('click', (e) => {
@@ -2121,9 +2157,16 @@ eventsView.addEventListener('click', (e) => {
                 renderEventDetail();
             }
             break;
-        case 'add-block':
-            currentEvent.blocks.push({ id: newBlockId(), title: 'Новый блок', time: '', loop: true, tracks: [] });
+        case 'add-block': {
+            const id = newBlockId();
+            currentEvent.blocks.push({ id, title: 'Новый блок', time: '', loop: true, tracks: [] });
+            openBlockId = id; // новый блок сразу раскрыт — его надо назвать и наполнить
             saveEvent();
+            renderEventDetail();
+            break;
+        }
+        case 'toggle-block':
+            openBlockId = openBlockId === block.id ? null : block.id;
             renderEventDetail();
             break;
         case 'pick':
@@ -2144,7 +2187,19 @@ eventsView.addEventListener('change', (e) => {
     else if (field === 'time') block.time = value;
     else if (field === 'block-title') block.title = value.trim() || block.title;
     else if (field === 'loop') block.loop = value === 'loop';
-    else if (field === 'game') {
+    if (block && ['time', 'block-title', 'loop'].includes(field)) {
+        // Строку блока на ленте обновляем на месте: полная перерисовка во время
+        // ввода времени сбивала бы фокус с поля
+        const row = e.target.closest('.tl-block');
+        if (row) {
+            const time = row.querySelector('.tl-time');
+            time.textContent = block.time || '—';
+            time.classList.toggle('empty', !block.time);
+            row.querySelector('.tl-title').textContent = block.title;
+            row.querySelector('.tl-sub').replaceChildren(ico(blockKindIcon(block)), blockSummary(block));
+        }
+    }
+    if (field === 'game') {
         block.game = value;
         saveEvent();
         renderEventDetail(); // подсказка и кнопки бинго зависят от игры
