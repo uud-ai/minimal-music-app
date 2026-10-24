@@ -240,12 +240,18 @@ function coverUrl(track, size = 'mqdefault') {
 function coverNode(track) {
     const box = document.createElement('div');
     box.className = 'cover';
-    fillCover(box, track);
+    fillCover(box, track, { lazy: true });
     return box;
 }
 
-function fillCover(box, track) {
+function fillCover(box, track, { lazy = false } = {}) {
     box.replaceChildren();
+    delete box.dataset.cover;
+    if (track && track.source === 'file') {
+        box.innerHTML = ICONS.note;
+        showFileCover(box, track, { lazy });
+        return;
+    }
     const url = coverUrl(track);
     if (url) {
         const img = document.createElement('img');
@@ -262,6 +268,175 @@ function fillCover(box, track) {
 
 setPlayPauseIcon(false);
 setLikeState(npLike, 'like');
+
+// --- 2.3 ОБЛОЖКИ СВОИХ ФАЙЛОВ ---
+// Во многих MP3 обложка альбома вшита в ID3-тег в начале файла (кадр APIC).
+// Читаем только начало файла (Range-запрос), достаём картинку и кладём её в
+// Cache Storage — второй раз сеть не нужна. Файлы без обложки запоминаем, чтобы
+// не скачивать их начало снова. Другие форматы (M4A, FLAC) пока не разбираем.
+const COVERS_CACHE = 'music-covers';
+const NO_COVER_KEY = 'files-without-cover';
+const ID3_FIRST_CHUNK = 256 * 1024;      // обычно тег с обложкой целиком помещается сюда
+const ID3_MAX_TAG = 4 * 1024 * 1024;     // тег больше — обложку не ищем
+const fileCoverMemo = new Map();         // ссылка на файл → Promise<objectURL | null>
+
+function readNoCover() {
+    try { return JSON.parse(localStorage.getItem(NO_COVER_KEY)) || []; } catch { return []; }
+}
+
+function rememberNoCover(url) {
+    const list = readNoCover();
+    if (list.includes(url)) return;
+    try { localStorage.setItem(NO_COVER_KEY, JSON.stringify([...list, url].slice(-300))); } catch { /* не критично */ }
+}
+
+// Обложка своего файла как objectURL или null — один раз на файл за сеанс
+function fileCover(track) {
+    if (!track || track.source !== 'file' || !track.audio) return Promise.resolve(null);
+    const url = track.audio;
+    if (!fileCoverMemo.has(url)) fileCoverMemo.set(url, loadFileCover(url).catch((error) => {
+        console.warn('Обложка файла недоступна:', error);
+        fileCoverMemo.delete(url); // ошибка сети — попробуем в следующий раз
+        return null;
+    }));
+    return fileCoverMemo.get(url);
+}
+
+async function loadFileCover(url) {
+    if (readNoCover().includes(url)) return null;
+    const cacheKey = `${url}?cover=1`;
+    const cache = 'caches' in window ? await caches.open(COVERS_CACHE) : null;
+    const hit = cache && await cache.match(cacheKey);
+    if (hit) return URL.createObjectURL(await hit.blob());
+
+    const blob = await withCoverSlot(() => extractId3Cover(url));
+    if (!blob) {
+        rememberNoCover(url);
+        return null;
+    }
+    if (cache) cache.put(cacheKey, new Response(blob, { headers: { 'Content-Type': blob.type } })).catch(() => {});
+    return URL.createObjectURL(blob);
+}
+
+// Не больше двух загрузок обложек одновременно — длинная библиотека не забьёт сеть
+let coverSlotsBusy = 0;
+const coverSlotQueue = [];
+async function withCoverSlot(job) {
+    if (coverSlotsBusy >= 2) await new Promise(resolve => coverSlotQueue.push(resolve));
+    coverSlotsBusy++;
+    try {
+        return await job();
+    } finally {
+        coverSlotsBusy--;
+        const next = coverSlotQueue.shift();
+        if (next) next();
+    }
+}
+
+async function fetchBytes(url, start, end) {
+    const response = await fetch(url, { headers: { Range: `bytes=${start}-${end}` } });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    // Сервер мог не понять Range и отдать файл целиком
+    return response.status === 206 ? bytes : bytes.subarray(start, end + 1);
+}
+
+const synchsafe = (b, i) => (b[i] << 21) | (b[i + 1] << 14) | (b[i + 2] << 7) | b[i + 3];
+const uint32 = (b, i) => ((b[i] << 24) >>> 0) + (b[i + 1] << 16) + (b[i + 2] << 8) + b[i + 3];
+const ascii = (b, from, to) => String.fromCharCode(...b.subarray(from, to));
+
+// Картинка из тега ID3v2.2–2.4 или null, если тега/обложки нет
+async function extractId3Cover(url) {
+    let bytes = await fetchBytes(url, 0, ID3_FIRST_CHUNK - 1);
+    if (bytes.length < 10 || ascii(bytes, 0, 3) !== 'ID3') return null;
+    const version = bytes[3];
+    const flags = bytes[5];
+    const tagEnd = synchsafe(bytes, 6) + 10;
+    if (version < 2 || version > 4 || tagEnd > ID3_MAX_TAG || (flags & 0x80)) return null; // 0x80 — редкая «рассинхронизация»
+    if (bytes.length < tagEnd) {
+        const rest = await fetchBytes(url, bytes.length, tagEnd - 1);
+        const whole = new Uint8Array(bytes.length + rest.length);
+        whole.set(bytes);
+        whole.set(rest, bytes.length);
+        bytes = whole;
+    }
+
+    let pos = 10;
+    if (version > 2 && (flags & 0x40)) pos += version === 4 ? synchsafe(bytes, 10) : uint32(bytes, 10) + 4;
+    const headerSize = version === 2 ? 6 : 10;
+    while (pos + headerSize <= Math.min(tagEnd, bytes.length)) {
+        if (bytes[pos] === 0) break; // дальше — пустое заполнение тега
+        const id = ascii(bytes, pos, pos + (version === 2 ? 3 : 4));
+        const size = version === 2 ? (bytes[pos + 3] << 16) | (bytes[pos + 4] << 8) | bytes[pos + 5]
+            : version === 4 ? synchsafe(bytes, pos + 4) : uint32(bytes, pos + 4);
+        if (size <= 0) break;
+        const body = bytes.subarray(pos + headerSize, pos + headerSize + size);
+        if (id === 'APIC' || id === 'PIC') {
+            const picture = parseId3Picture(body, version);
+            if (picture) return picture;
+        }
+        pos += headerSize + size;
+    }
+    return null;
+}
+
+function parseId3Picture(b, version) {
+    const encoding = b[0];
+    let p = 1;
+    let mime = '';
+    if (version === 2) {
+        mime = ascii(b, 1, 4).toUpperCase() === 'PNG' ? 'image/png' : 'image/jpeg';
+        p = 4;
+    } else {
+        const end = b.indexOf(0, p);
+        if (end < 0) return null;
+        mime = ascii(b, p, end).toLowerCase();
+        p = end + 1;
+    }
+    p += 1; // тип картинки (обложка, задняя сторона и т. п.)
+    // Подпись картинки: в UTF-16 оканчивается двумя нулями, в остальных — одним
+    if (encoding === 1 || encoding === 2) {
+        while (p + 1 < b.length && !(b[p] === 0 && b[p + 1] === 0)) p += 2;
+        p += 2;
+    } else {
+        while (p < b.length && b[p] !== 0) p++;
+        p += 1;
+    }
+    const data = b.slice(p);
+    if (mime === '-->' || data.length < 64) return null; // вместо картинки — ссылка
+    if (data[0] === 0xFF && data[1] === 0xD8) mime = 'image/jpeg';
+    else if (data[0] === 0x89 && data[1] === 0x50) mime = 'image/png';
+    else if (!mime.startsWith('image/')) mime = 'image/jpeg';
+    return new Blob([data], { type: mime });
+}
+
+// В длинном списке обложки грузим, только когда карточка появляется на экране
+const coverObserver = 'IntersectionObserver' in window ? new IntersectionObserver((entries) => {
+    for (const entry of entries) {
+        if (!entry.isIntersecting) continue;
+        coverObserver.unobserve(entry.target);
+        entry.target._loadCover && entry.target._loadCover();
+    }
+}, { rootMargin: '200px' }) : null;
+
+// Подставляет обложку своего файла в коробку, если она есть (иначе остаётся нота)
+function showFileCover(box, track, { lazy = false, onUrl = null } = {}) {
+    box.dataset.cover = track.audio;
+    const load = () => fileCover(track).then((url) => {
+        if (!url || box.dataset.cover !== track.audio) return;
+        const img = document.createElement('img');
+        img.alt = '';
+        img.src = url;
+        box.replaceChildren(img);
+        if (onUrl) onUrl(url);
+    });
+    if (lazy && coverObserver) {
+        box._loadCover = load;
+        coverObserver.observe(box);
+    } else {
+        load();
+    }
+}
 
 // --- 3. ЗАГРУЗКА YOUTUBE ПЛЕЕРА ---
 let ytPlayer;
@@ -512,6 +687,15 @@ function updateMediaSession(name, artist, track = null) {
             ]
         });
     } catch { /* MediaMetadata недоступен */ }
+    // У своего файла обложка из тега приходит позже — дорисовываем, если трек тот же
+    if (track && track.source === 'file') {
+        fileCover(track).then((url) => {
+            if (!url || nowPlayingTrack !== track) return;
+            try {
+                navigator.mediaSession.metadata = new MediaMetadata({ title: name || '', artist: artist || '', artwork: [{ src: url }] });
+            } catch { /* не поддерживается */ }
+        });
+    }
 }
 
 // --- 4. УТИЛИТЫ ---
@@ -1461,8 +1645,11 @@ function fillBigCover(box, track) {
     if (!id) {
         box.innerHTML = ICONS.note;
         fpBg.removeAttribute('src');
+        if (track && track.source === 'file') showFileCover(box, track, { onUrl: (url) => { fpBg.src = url; } });
+        else delete box.dataset.cover;
         return;
     }
+    delete box.dataset.cover;
     fpBg.src = coverUrl(track, 'mqdefault'); // фон всё равно размыт — хватит маленькой
     const img = new Image();
     img.alt = '';
