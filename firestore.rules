@@ -15,5 +15,42 @@ service cloud.firestore {
       allow update: if request.auth != null && request.auth.uid == resource.data.uid
                     && request.resource.data.uid == resource.data.uid;
     }
+
+    // Публичная карточка мероприятия для гостей по QR: название и открыт ли приём заказов.
+    // Читать может любой вошедший (гости входят анонимно), менять — только владелец мероприятия
+    match /public_events/{eventId} {
+      allow read: if request.auth != null;
+      allow create, update: if request.auth != null
+                            && request.resource.data.ownerUid == request.auth.uid
+                            && get(/databases/$(database)/documents/events/$(eventId)).data.uid == request.auth.uid
+                            && request.resource.data.keys().hasOnly(['ownerUid', 'title', 'requestsOpen', 'updatedAt'])
+                            && request.resource.data.requestsOpen is bool;
+      allow delete: if request.auth != null && resource.data.ownerUid == request.auth.uid;
+    }
+
+    // Заказы песен гостями. Гость создаёт только свой заказ и только пока приём открыт;
+    // видит свои заказы. Организатор видит заказы своего мероприятия и меняет у них лишь статус
+    match /requests/{requestId} {
+      function publicEvent() {
+        return get(/databases/$(database)/documents/public_events/$(request.resource.data.eventId)).data;
+      }
+
+      allow create: if request.auth != null
+                    && request.resource.data.guestUid == request.auth.uid
+                    && request.resource.data.keys().hasOnly(['eventId', 'ownerUid', 'guestUid', 'guestName', 'name', 'artist_name', 'videoId', 'createdAt', 'status'])
+                    && request.resource.data.status == 'new'
+                    && request.resource.data.name is string && request.resource.data.name.size() > 0 && request.resource.data.name.size() <= 200
+                    && request.resource.data.guestName is string && request.resource.data.guestName.size() <= 40
+                    && request.resource.data.artist_name is string && request.resource.data.artist_name.size() <= 100
+                    && request.resource.data.videoId is string && request.resource.data.videoId.size() <= 20
+                    && publicEvent().requestsOpen == true
+                    && request.resource.data.ownerUid == publicEvent().ownerUid;
+      allow read: if request.auth != null
+                  && (resource.data.ownerUid == request.auth.uid || resource.data.guestUid == request.auth.uid);
+      allow update: if request.auth != null && resource.data.ownerUid == request.auth.uid
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])
+                    && request.resource.data.status in ['new', 'accepted', 'rejected'];
+      allow delete: if request.auth != null && resource.data.ownerUid == request.auth.uid;
+    }
   }
 }

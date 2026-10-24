@@ -1,3 +1,5 @@
+import qrcode from 'qrcode-generator';
+
 // --- 1. РЕГИСТРАЦИЯ SERVICE WORKER (ДЛЯ PWA) ---
 if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
@@ -38,7 +40,7 @@ function loadFirebase() {
         firebasePromise = (async () => {
             const [
                 { initializeApp },
-                { getFirestore, collection, addDoc, getDocs, query, where, deleteDoc, doc, updateDoc },
+                { getFirestore, collection, addDoc, getDocs, query, where, deleteDoc, doc, updateDoc, setDoc, getDoc, onSnapshot },
                 {
                     getAuth, signInAnonymously, onAuthStateChanged, connectAuthEmulator, signOut,
                     GoogleAuthProvider, linkWithPopup, signInWithPopup, signInWithCredential,
@@ -81,7 +83,7 @@ function loadFirebase() {
             });
 
             return {
-                db, collection, addDoc, getDocs, query, where, deleteDoc, doc, updateDoc,
+                db, collection, addDoc, getDocs, query, where, deleteDoc, doc, updateDoc, setDoc, getDoc, onSnapshot,
                 auth, signOut, GoogleAuthProvider, linkWithPopup, signInWithPopup, signInWithCredential,
                 EmailAuthProvider, linkWithCredential, signInWithEmailAndPassword, sendPasswordResetEmail,
                 authReady,
@@ -92,6 +94,10 @@ function loadFirebase() {
     }
     return firebasePromise;
 }
+
+// Ссылка из QR-кода для гостей: ?guest=<id мероприятия> — вместо приложения
+// открывается страница заказа песни (раздел 14)
+const GUEST_EVENT_ID = new URLSearchParams(location.search).get('guest');
 
 // Константы приложения
 const YOUTUBE_API_KEY = "AIzaSyBgrlvnKuTsj4HSitEUT3Ae4yJLbNozfd8";
@@ -141,11 +147,13 @@ let lastSearchTracks = null;
 let lastSearchQuery = '';
 let nextPageToken = null;
 
-// Асинхронно загружаем скрипт YouTube IFrame API
-const tag = document.createElement('script');
-tag.src = "https://www.youtube.com/iframe_api";
-const firstScriptTag = document.getElementsByTagName('script')[0];
-firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
+// Асинхронно загружаем скрипт YouTube IFrame API (гостю, заказывающему песню, плеер не нужен)
+if (!GUEST_EVENT_ID) {
+    const tag = document.createElement('script');
+    tag.src = "https://www.youtube.com/iframe_api";
+    const firstScriptTag = document.getElementsByTagName('script')[0];
+    firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
+}
 
 // Эта функция автоматически вызовется, когда скрипт YouTube загрузится
 window.onYouTubeIframeAPIReady = function() {
@@ -498,10 +506,25 @@ async function loadMoreTracks() {
     updateLoadMoreButton();
 }
 
-// Запрашивает одну страницу результатов у YouTube Data API и обновляет nextPageToken
-async function fetchSearchPage(queryText, pageToken) {
+function youtubeSearchUrl(queryText, pageToken = null) {
     let url = `https://www.googleapis.com/youtube/v3/search?part=snippet&maxResults=10&q=${encodeURIComponent(queryText)}&type=video&videoCategoryId=10&videoEmbeddable=true&videoSyndicated=true&key=${YOUTUBE_API_KEY}`;
     if (pageToken) url += `&pageToken=${pageToken}`;
+    return url;
+}
+
+// Результаты YouTube в формате треков приложения
+function youtubeItemsToTracks(items) {
+    return items.map(item => ({
+        id: item.id.videoId,
+        name: item.snippet.title,
+        artist_name: item.snippet.channelTitle,
+        audio: item.id.videoId // В качестве "аудио" передаем ID видео
+    }));
+}
+
+// Запрашивает одну страницу результатов у YouTube Data API и обновляет nextPageToken
+async function fetchSearchPage(queryText, pageToken) {
+    const url = youtubeSearchUrl(queryText, pageToken);
 
     try {
         const response = await fetch(url);
@@ -515,13 +538,7 @@ async function fetchSearchPage(queryText, pageToken) {
 
         nextPageToken = data.nextPageToken || null;
 
-        // Преобразуем данные YouTube в наш формат
-        return data.items.map(item => ({
-            id: item.id.videoId,
-            name: item.snippet.title,
-            artist_name: item.snippet.channelTitle,
-            audio: item.id.videoId // В качестве "аудио" передаем ID видео
-        }));
+        return youtubeItemsToTracks(data.items);
     } catch (error) {
         console.error("Ошибка сети:", error);
         trackList.innerHTML = '<p class="status">Ошибка сети. Проверьте подключение.</p>';
@@ -962,6 +979,7 @@ let eventsOffline = false; // список показан из скачанны�
 
 async function loadEvents() {
     currentEvent = null;
+    stopRequests();
     eventsView.replaceChildren(el('p', { class: 'status' }, 'Загружаем мероприятия...'));
     try {
         // На площадке сеть бывает «есть, но не грузит» — не ждём её дольше 8 секунд
@@ -1143,6 +1161,7 @@ async function createEvent(title, type, date) {
 
 function openEvent(ev) {
     currentEvent = ev;
+    startRequests(ev);
     renderEventDetail();
     window.scrollTo(0, 0);
 }
@@ -1155,6 +1174,7 @@ async function saveEvent() {
         const fb = await loadFirebase();
         await fb.updateDoc(fb.doc(fb.db, "events", id), { title, date, type, blocks });
         if (getOfflineEvents()[id]) storeOfflineEvent(currentEvent);
+        syncPublicTitle(currentEvent);
     } catch (error) {
         console.error("Ошибка сохранения мероприятия:", error);
         alert("Не удалось сохранить изменения.");
@@ -1206,7 +1226,8 @@ function renderEventDetail() {
             el('button', { class: 'link-btn', dataset: { action: 'pick', block: i } }, '＋ Добавить трек'));
     });
 
-    eventsView.replaceChildren(header, ...blocks,
+    renderRequestsPanel();
+    eventsView.replaceChildren(header, requestsPanel, ...blocks,
         el('button', { class: 'ghost-btn add-block-btn', dataset: { action: 'add-block' } }, '＋ Добавить блок'));
 }
 
@@ -1291,6 +1312,10 @@ async function deleteEvent() {
     try {
         const fb = await loadFirebase();
         await fb.deleteDoc(fb.doc(fb.db, "events", id));
+        // Ссылка у гостей перестанет работать вместе с мероприятием
+        if (publicEvent) await fb.deleteDoc(fb.doc(fb.db, "public_events", id)).catch(() => {});
+        await Promise.all(requests.filter(r => r.eventId === id)
+            .map(r => fb.deleteDoc(fb.doc(fb.db, "requests", r.id)).catch(() => {})));
         removeOfflineEvent(id);
         if (playingBlock && playingBlock.eventId === id) playingBlock = null;
         loadEvents();
@@ -1798,3 +1823,439 @@ async function moveCachedFiles(keyMap) {
         await cache.delete(fromUrl, { ignoreVary: true });
     }
 }
+
+// --- 14. ЗАКАЗЫ ПЕСЕН ГОСТЯМИ ПО QR-КОДУ (сторона организатора) ---
+// Гость сканирует QR → страница ?guest=<id мероприятия> (раздел 15) → документ в
+// коллекции requests. Само мероприятие гостям не видно: им открыт только
+// public_events/<id> — название и открыт ли приём заказов.
+// Одинаковые заказы складываются в один («×3») — заодно это голосование.
+const REQUESTS_PER_GUEST = 3; // сколько заказов гость может держать в ожидании
+
+let publicEvent = null;     // public_events/<id> текущего мероприятия или null
+let requests = [];          // заказы текущего мероприятия
+let requestsUnsub = null;   // отписка от живого списка
+let requestsEventId = null;
+let requestTargetBlockId = null; // куда добавлять принятые заказы
+
+// Панель заказов живёт дольше одной отрисовки сценария — её узел переиспользуем
+const requestsPanel = el('section', { class: 'requests-panel' });
+
+function guestUrl(eventId) {
+    return `${location.origin}/?guest=${encodeURIComponent(eventId)}`;
+}
+
+// QR как SVG; библиотека генерирует разметку сама, пользовательских данных в ней нет
+function qrNode(url, className = 'qr') {
+    const qr = qrcode(0, 'M');
+    qr.addData(url);
+    qr.make();
+    const box = el('div', { class: className });
+    box.innerHTML = qr.createSvgTag(4, 2);
+    return box;
+}
+
+function stopRequests() {
+    if (requestsUnsub) requestsUnsub();
+    requestsUnsub = null;
+    requestsEventId = null;
+    requests = [];
+    publicEvent = null;
+    updateShowRequestsBadge();
+}
+
+async function startRequests(ev) {
+    if (requestsEventId === ev.id) return;
+    stopRequests();
+    requestsEventId = ev.id;
+    renderRequestsPanel();
+    if (eventsOffline) return;
+    try {
+        const fb = await loadFirebase();
+        await fb.authReady;
+        const snap = await fb.getDoc(fb.doc(fb.db, "public_events", ev.id));
+        if (requestsEventId !== ev.id) return;
+        publicEvent = snap.exists() ? snap.data() : null;
+        const q = fb.query(fb.collection(fb.db, "requests"),
+            fb.where("ownerUid", "==", fb.getCurrentUser().uid), fb.where("eventId", "==", ev.id));
+        requestsUnsub = fb.onSnapshot(q, (snapshot) => {
+            requests = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+            renderRequestsPanel();
+            renderShowRequests();
+            updateShowRequestsBadge();
+        }, (error) => console.error("Ошибка списка заказов:", error));
+        renderRequestsPanel();
+    } catch (error) {
+        console.error("Не удалось загрузить заказы:", error);
+    }
+}
+
+// Новые заказы, сгруппированные по песне: популярные сверху
+function groupedNewRequests() {
+    const groups = new Map();
+    for (const r of requests.filter(r => r.status === 'new')) {
+        const key = r.videoId || r.name.trim().toLowerCase();
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(r);
+    }
+    return [...groups.values()]
+        .map(items => items.sort((a, b) => a.createdAt - b.createdAt))
+        .sort((a, b) => b.length - a.length || a[0].createdAt - b[0].createdAt);
+}
+
+async function setRequestsOpen(open) {
+    const ev = currentEvent;
+    try {
+        const fb = await loadFirebase();
+        const data = { ownerUid: fb.getCurrentUser().uid, title: ev.title, requestsOpen: open, updatedAt: Date.now() };
+        await fb.setDoc(fb.doc(fb.db, "public_events", ev.id), data);
+        if (currentEvent === ev) publicEvent = data;
+    } catch (error) {
+        console.error("Не удалось изменить приём заказов:", error);
+        alert("Не удалось изменить приём заказов.");
+    }
+    renderRequestsPanel();
+}
+
+// Название меняли — гостям тоже показываем новое
+async function syncPublicTitle(ev) {
+    if (!publicEvent || publicEvent.title === ev.title) return;
+    try {
+        const fb = await loadFirebase();
+        await fb.updateDoc(fb.doc(fb.db, "public_events", ev.id), { title: ev.title, updatedAt: Date.now() });
+        publicEvent.title = ev.title;
+    } catch (error) {
+        console.warn("Не удалось обновить название для гостей:", error);
+    }
+}
+
+function defaultTargetBlock() {
+    const blocks = currentEvent.blocks;
+    const current = currentBlockIndex();
+    if (requestTargetBlockId && blocks.some(b => b.id === requestTargetBlockId)) return requestTargetBlockId;
+    if (current >= 0 && blocks[current].loop) return blocks[current].id;
+    const dance = [...blocks].reverse().find(b => b.loop);
+    return (dance || blocks[0] || {}).id || null;
+}
+
+async function setRequestsStatus(items, status) {
+    try {
+        const fb = await loadFirebase();
+        await Promise.all(items.map(r => fb.updateDoc(fb.doc(fb.db, "requests", r.id), { status })));
+    } catch (error) {
+        console.error("Не удалось обновить заказ:", error);
+        alert("Не удалось обновить заказ.");
+    }
+}
+
+async function acceptRequestGroup(items) {
+    const first = items[0];
+    const block = currentEvent.blocks.find(b => b.id === defaultTargetBlock());
+    if (!block) return;
+
+    if (!first.videoId) {
+        // Гость написал название без поиска — ищем сами и добавляем кнопкой ＋
+        await setRequestsStatus(items, 'accepted');
+        if (showMode.classList.contains('open')) closeShowMode();
+        pickTarget = { blockId: block.id };
+        navSearch.click();
+        searchInput.value = first.name;
+        searchMusic(first.name);
+        return;
+    }
+
+    const track = { id: first.videoId, name: first.name, artist_name: first.artist_name || '', audio: first.videoId };
+    block.tracks.push(track);
+    // Блок уже звучит — песня встаёт в его очередь сразу
+    if (playingBlock && playingBlock.blockId === block.id && activeQueue) activeQueue.push({ ...track });
+    saveEvent();
+    await setRequestsStatus(items, 'accepted');
+    if (!eventsView.classList.contains('hidden')) renderEventDetail();
+}
+
+// Список новых заказов — общий для экрана мероприятия и режима ведущего
+function requestsListNode() {
+    const groups = groupedNewRequests();
+    if (groups.length === 0) return el('p', { class: 'requests-empty' }, 'Новых заказов нет');
+
+    const targetSelect = el('select', { class: 'requests-target', dataset: { requestsField: 'target' } },
+        ...currentEvent.blocks.map(b => el('option', { value: b.id, selected: b.id === defaultTargetBlock() }, `в блок «${b.title}»`)));
+
+    return el('div', {},
+        el('div', { class: 'requests-target-row' }, el('span', {}, 'Принятые —'), targetSelect),
+        el('ol', { class: 'requests-list' }, ...groups.map((items, i) => {
+            const first = items[0];
+            const names = [...new Set(items.map(r => r.guestName).filter(Boolean))].join(', ');
+            return el('li', {},
+                el('span', { class: 'request-info' },
+                    el('strong', {}, first.name, items.length > 1 ? el('span', { class: 'request-count' }, ` ×${items.length}`) : null),
+                    el('span', {}, [first.videoId ? (first.artist_name || 'YouTube') : '✍️ без поиска', names && `от: ${names}`].filter(Boolean).join(' · '))),
+                el('button', { class: 'mini-btn accept', dataset: { requestAction: 'accept', group: i }, 'aria-label': 'Принять' }, '✓'),
+                el('button', { class: 'mini-btn', dataset: { requestAction: 'reject', group: i }, 'aria-label': 'Отклонить' }, '✕'));
+        })));
+}
+
+function renderRequestsPanel() {
+    if (!currentEvent) return;
+    const open = !!(publicEvent && publicEvent.requestsOpen);
+    const accepted = requests.filter(r => r.status === 'accepted').length;
+    const url = guestUrl(currentEvent.id);
+
+    const children = [
+        el('div', { class: 'requests-head' },
+            el('h3', {}, '📱 Заказы гостей'),
+            el('label', { class: 'switch' },
+                el('input', { type: 'checkbox', checked: open, disabled: eventsOffline, dataset: { requestsField: 'open' } }),
+                el('span', {}, open ? 'Принимаем' : 'Закрыто')))
+    ];
+    if (eventsOffline) {
+        children.push(el('p', { class: 'requests-empty' }, 'Без сети заказы недоступны'));
+    } else if (open) {
+        children.push(
+            el('div', { class: 'requests-share' },
+                qrNode(url),
+                el('div', { class: 'requests-share-actions' },
+                    el('p', { class: 'requests-hint' }, 'Гости сканируют код камерой телефона — без установки и регистрации.'),
+                    el('button', { class: 'ghost-btn', dataset: { requestAction: 'share' } }, navigator.share ? 'Поделиться ссылкой' : 'Скопировать ссылку'),
+                    el('button', { class: 'ghost-btn', dataset: { requestAction: 'qr-full' } }, 'QR на весь экран'))),
+            requestsListNode(),
+            accepted ? el('p', { class: 'requests-hint' }, `Принято за вечер: ${accepted}`) : null);
+    } else {
+        children.push(el('p', { class: 'requests-hint' }, 'Включите, чтобы показать гостям QR-код: они смогут заказывать песни со своих телефонов.'));
+    }
+    requestsPanel.replaceChildren(...children.filter(Boolean));
+}
+
+// Действия с заказами — и на экране мероприятия, и в режиме ведущего
+async function handleRequestsClick(e) {
+    const btn = e.target.closest('[data-request-action]');
+    if (!btn || !currentEvent) return;
+    const groups = groupedNewRequests();
+    const action = btn.dataset.requestAction;
+    if (action === 'accept' || action === 'reject') {
+        const items = groups[Number(btn.dataset.group)];
+        if (!items) return;
+        btn.disabled = true;
+        if (action === 'accept') await acceptRequestGroup(items);
+        else await setRequestsStatus(items, 'rejected');
+    } else if (action === 'share') {
+        const url = guestUrl(currentEvent.id);
+        if (navigator.share) {
+            navigator.share({ title: currentEvent.title, text: 'Закажите песню', url }).catch(() => {});
+        } else {
+            try {
+                await navigator.clipboard.writeText(url);
+                btn.textContent = '✓ Ссылка скопирована';
+            } catch {
+                prompt('Ссылка для гостей:', url);
+            }
+        }
+    } else if (action === 'qr-full') {
+        openQrFullscreen();
+    }
+}
+
+function handleRequestsChange(e) {
+    const field = e.target.dataset.requestsField;
+    if (field === 'open') setRequestsOpen(e.target.checked);
+    else if (field === 'target') {
+        requestTargetBlockId = e.target.value;
+        renderRequestsPanel();
+        renderShowRequests();
+    }
+}
+
+requestsPanel.addEventListener('click', handleRequestsClick);
+requestsPanel.addEventListener('change', handleRequestsChange);
+
+// --- 14.1 Заказы в режиме ведущего: счётчик, список и QR на весь экран ---
+const showRequestsBtn = document.getElementById('show-requests');
+const showRequestsPanel = document.getElementById('show-requests-panel');
+const qrFullscreen = document.getElementById('qr-fullscreen');
+
+function updateShowRequestsBadge() {
+    const count = groupedNewRequests().length;
+    const open = !!(publicEvent && publicEvent.requestsOpen);
+    showRequestsBtn.classList.toggle('hidden', !open && count === 0);
+    showRequestsBtn.textContent = count ? `📱 ${count}` : '📱';
+    showRequestsBtn.classList.toggle('has-new', count > 0);
+}
+
+function renderShowRequests() {
+    if (showRequestsPanel.classList.contains('hidden') || !currentEvent) return;
+    showRequestsPanel.replaceChildren(
+        el('div', { class: 'show-requests-head' },
+            el('strong', {}, 'Заказы гостей'),
+            el('button', { class: 'ghost-btn', dataset: { requestAction: 'qr-full' } }, 'QR для гостей'),
+            el('button', { class: 'sheet-close', dataset: { requestAction: 'close-panel' }, 'aria-label': 'Закрыть' }, '✕')),
+        requestsListNode());
+}
+
+showRequestsBtn.addEventListener('click', () => {
+    showRequestsPanel.classList.toggle('hidden');
+    renderShowRequests();
+});
+showRequestsPanel.addEventListener('click', (e) => {
+    if (e.target.closest('[data-request-action="close-panel"]')) {
+        showRequestsPanel.classList.add('hidden');
+        return;
+    }
+    handleRequestsClick(e);
+});
+showRequestsPanel.addEventListener('change', handleRequestsChange);
+
+function openQrFullscreen() {
+    if (!currentEvent) return;
+    const url = guestUrl(currentEvent.id);
+    qrFullscreen.replaceChildren(
+        el('p', { class: 'qr-title' }, 'Закажите песню 🎵'),
+        qrNode(url, 'qr qr-big'),
+        el('p', { class: 'qr-event' }, currentEvent.title),
+        el('p', { class: 'qr-url' }, url.replace(/^https?:\/\//, '')),
+        el('button', { class: 'ghost-btn', dataset: { action: 'close-qr' } }, 'Закрыть'));
+    qrFullscreen.classList.remove('hidden');
+}
+
+qrFullscreen.addEventListener('click', (e) => {
+    if (e.target === qrFullscreen || e.target.closest('[data-action="close-qr"]')) qrFullscreen.classList.add('hidden');
+});
+
+// --- 15. СТРАНИЦА ГОСТЯ: ЗАКАЗ ПЕСНИ ---
+const guestView = document.getElementById('guest-view');
+
+async function startGuestPage(eventId) {
+    document.body.classList.add('guest-mode');
+    guestView.classList.remove('hidden');
+    document.title = 'Заказ песни';
+    guestView.replaceChildren(el('p', { class: 'status' }, 'Загрузка…'));
+
+    let fb;
+    try {
+        fb = await loadFirebase();
+        await fb.authReady; // гость входит анонимно — только чтобы подписать свои заказы
+    } catch (error) {
+        guestView.replaceChildren(el('p', { class: 'status' }, 'Нет связи. Проверьте интернет и обновите страницу.'));
+        return;
+    }
+    const guestUid = fb.getCurrentUser().uid;
+    let pub = null;
+    let mine = [];
+
+    const nameInput = el('input', { type: 'text', maxLength: 40, placeholder: 'Ваше имя (необязательно)', value: localStorage.getItem('guestName') || '' });
+    nameInput.addEventListener('change', () => {
+        try { localStorage.setItem('guestName', nameInput.value.trim()); } catch { /* приватный режим */ }
+    });
+    const searchBox = el('input', { type: 'search', placeholder: 'Найдите песню или исполнителя', enterKeyHint: 'search' });
+    const results = el('div', { class: 'guest-results' });
+    const textBox = el('input', { type: 'text', maxLength: 150, placeholder: 'Или напишите название сами' });
+    const status = el('p', { class: 'guest-status' });
+    const mineList = el('ol', { class: 'guest-mine' });
+    const title = el('h1', {}, '…');
+    const closedNote = el('p', { class: 'guest-closed hidden' }, 'Организатор сейчас не принимает заказы. Загляните позже!');
+    // Форма скрыта, пока не узнали, открыт ли приём, — иначе быстрый заказ отклонялся бы
+    const form = el('div', { class: 'guest-form hidden' },
+        nameInput,
+        el('form', { class: 'guest-search' }, searchBox, el('button', { type: 'submit', class: 'primary-btn' }, 'Найти')),
+        results,
+        el('form', { class: 'guest-text' }, textBox, el('button', { type: 'submit', class: 'ghost-btn' }, 'Заказать')),
+        status);
+
+    guestView.replaceChildren(
+        el('p', { class: 'guest-label' }, '🎵 Заказ песни'),
+        title, closedNote, form,
+        el('h2', {}, 'Ваши заказы'), mineList);
+
+    const setStatus = (text, isError = false) => {
+        status.textContent = text;
+        status.classList.toggle('error', isError);
+    };
+
+    function renderMine() {
+        const labels = { new: '⏳ ждёт', accepted: '✓ принят', rejected: '✕ не в этот раз' };
+        mineList.replaceChildren(...(mine.length
+            ? mine.sort((a, b) => b.createdAt - a.createdAt).map(r =>
+                el('li', { class: `guest-req ${r.status}` }, el('span', {}, r.name), el('span', { class: 'guest-req-status' }, labels[r.status] || r.status)))
+            : [el('li', { class: 'requests-empty' }, 'Пока нет — закажите что-нибудь!')]));
+    }
+
+    async function submit(track) {
+        if (!pub || !pub.requestsOpen) return setStatus('Приём заказов закрыт', true);
+        if (mine.filter(r => r.status === 'new').length >= REQUESTS_PER_GUEST) {
+            return setStatus(`Не больше ${REQUESTS_PER_GUEST} заказов в ожидании — дождитесь, пока организатор их рассмотрит`, true);
+        }
+        try {
+            await fb.addDoc(fb.collection(fb.db, "requests"), {
+                eventId, ownerUid: pub.ownerUid, guestUid,
+                guestName: nameInput.value.trim().slice(0, 40),
+                name: track.name.slice(0, 200),
+                artist_name: (track.artist_name || '').slice(0, 100),
+                videoId: track.videoId || '',
+                createdAt: Date.now(),
+                status: 'new'
+            });
+            setStatus(`✓ Заказ «${track.name}» отправлен`);
+            return true;
+        } catch (error) {
+            console.error("Не удалось отправить заказ:", error);
+            setStatus('Не получилось отправить — возможно, приём заказов закрыт', true);
+            return false;
+        }
+    }
+
+    form.querySelector('.guest-search').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const q = searchBox.value.trim();
+        if (!q) return;
+        results.replaceChildren(el('p', { class: 'requests-empty' }, 'Ищем…'));
+        try {
+            const data = await (await fetch(youtubeSearchUrl(q))).json();
+            if (data.error) throw new Error(data.error.message);
+            const tracks = youtubeItemsToTracks(data.items);
+            results.replaceChildren(...(tracks.length ? tracks.map(t =>
+                el('div', { class: 'guest-result' },
+                    el('span', { class: 'request-info' }, el('strong', {}, t.name), el('span', {}, t.artist_name)),
+                    el('button', { class: 'primary-btn', dataset: { videoId: t.id } }, 'Заказать')))
+                : [el('p', { class: 'requests-empty' }, 'Ничего не нашлось — напишите название ниже')]));
+            results._tracks = tracks;
+        } catch (error) {
+            console.error("Поиск гостя:", error);
+            results.replaceChildren(el('p', { class: 'requests-empty' }, 'Поиск сейчас не работает — напишите название ниже'));
+        }
+    });
+
+    results.addEventListener('click', async (e) => {
+        const btn = e.target.closest('[data-video-id]');
+        if (!btn) return;
+        const track = (results._tracks || []).find(t => t.id === btn.dataset.videoId);
+        btn.disabled = true;
+        if (await submit({ name: track.name, artist_name: track.artist_name, videoId: track.id })) btn.textContent = '✓';
+        else btn.disabled = false;
+    });
+
+    form.querySelector('.guest-text').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const name = textBox.value.trim();
+        if (!name) return;
+        if (await submit({ name })) textBox.value = '';
+    });
+
+    // Открыт ли приём и название — живьём: организатор может закрыть приём в любой момент
+    fb.onSnapshot(fb.doc(fb.db, "public_events", eventId), (snap) => {
+        if (!snap.exists()) {
+            guestView.replaceChildren(el('p', { class: 'status' }, 'Ссылка недействительна или мероприятие удалено.'));
+            return;
+        }
+        pub = snap.data();
+        title.textContent = pub.title;
+        closedNote.classList.toggle('hidden', pub.requestsOpen);
+        form.classList.toggle('hidden', !pub.requestsOpen);
+    }, () => guestView.replaceChildren(el('p', { class: 'status' }, 'Ссылка недействительна.')));
+
+    fb.onSnapshot(fb.query(fb.collection(fb.db, "requests"),
+        fb.where("guestUid", "==", guestUid), fb.where("eventId", "==", eventId)), (snap) => {
+        mine = snap.docs.map(d => d.data());
+        renderMine();
+    });
+    renderMine();
+}
+
+if (GUEST_EVENT_ID) startGuestPage(GUEST_EVENT_ID);

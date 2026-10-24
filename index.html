@@ -73,6 +73,7 @@
                     <strong id="show-event-title"></strong>
                     <span id="show-clock"></span>
                 </div>
+                <button id="show-requests" class="hidden" aria-label="Заказы гостей">📱</button>
                 <button id="show-close" aria-label="Закрыть режим ведущего">✕</button>
             </div>
             <div id="show-video"><div id="yt-player"></div></div>
@@ -87,7 +88,11 @@
                 <button id="show-next">Следующий блок ⏭</button>
             </div>
             <ol id="show-blocks"></ol>
+            <div id="show-requests-panel" class="hidden"></div>
         </div>
+
+        <!-- QR-код для гостей на весь экран — показать залу или вывести на проектор -->
+        <div id="qr-fullscreen" class="hidden"></div>
 
         <!-- Вход необязателен: без него всё работает на этом устройстве -->
         <div id="account-sheet" class="hidden">
@@ -107,6 +112,9 @@
         </nav>
     </div>
     
+    <!-- Страница гостя (?guest=<id>): заказ песни по QR-коду вместо приложения -->
+    <main id="guest-view" class="hidden"></main>
+
     <script type="module" src="main.js"></script>
 </body>
 </html>
