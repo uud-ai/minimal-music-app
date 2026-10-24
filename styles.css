@@ -2632,3 +2632,82 @@ body.audio-playing .cover .eq i {
         animation: none;
     }
 }
+
+/* --- 21. НАСТРОЙКИ В ЛИСТЕ АККАУНТА: «НЕ ГАСИТЬ ЭКРАН» --- */
+.sheet-setting {
+    margin-top: 6px;
+    padding-top: 14px;
+    border-top: 1px solid var(--line);
+}
+
+.setting-row {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    cursor: pointer;
+}
+
+.setting-text {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.setting-text strong {
+    font-weight: 500;
+    color: var(--ink);
+}
+
+.setting-text span {
+    font-size: 0.85rem;
+    color: var(--muted);
+}
+
+/* Переключатель в духе iOS: латунный, когда включён */
+.toggle {
+    flex-shrink: 0;
+    position: relative;
+    width: 48px;
+    height: 28px;
+    margin: 0;
+    border-radius: 14px;
+    background: var(--line);
+    -webkit-appearance: none;
+    appearance: none;
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+
+.toggle::before {
+    content: '';
+    position: absolute;
+    top: 3px;
+    left: 3px;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: var(--surface);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+    transition: transform 0.2s ease;
+}
+
+.toggle:checked {
+    background: var(--accent-fill);
+}
+
+.toggle:checked::before {
+    transform: translateX(20px);
+}
+
+.toggle:disabled {
+    opacity: 0.45;
+    cursor: default;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .toggle, .toggle::before {
+        transition: none;
+    }
+}

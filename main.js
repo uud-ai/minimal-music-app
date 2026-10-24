@@ -2402,7 +2402,7 @@ function openShowMode() {
     updateClock();
     clearInterval(clockTimer); // повторное открытие не должно плодить таймеры
     clockTimer = setInterval(updateClock, 1000);
-    if (!wakeLock || wakeLock.released) requestWakeLock();
+    syncWakeLock();
     renderShowNow();
     renderShowBlocks();
     updateShowPlayPause();
@@ -2415,8 +2415,7 @@ function closeShowMode(fromHistory = false) {
     showMode.setAttribute('inert', '');
     document.body.classList.remove('show-open');
     clearInterval(clockTimer);
-    if (wakeLock) wakeLock.release().catch(() => {});
-    wakeLock = null;
+    syncWakeLock(); // если включено «Не гасить экран», замок остаётся
     if (currentEvent && !eventsView.classList.contains('hidden')) renderEventDetail();
 }
 
@@ -2424,28 +2423,63 @@ function updateClock() {
     showClock.textContent = new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
 }
 
-async function requestWakeLock() {
-    if (!('wakeLock' in navigator)) return;
+// --- 12.1 НЕ ГАСИТЬ ЭКРАН (Screen Wake Lock) ---
+// Экран не гаснет, пока приложение открыто (настройка «Не гасить экран», по
+// умолчанию включена) и всегда — на пульте ведущего. На iPhone в Safari это
+// работает с iOS 16.4, в приложении на экране «Домой» — с iOS 18.4.
+// Замок снимается сам, когда приложение уходит в фон, — при возврате берём снова.
+const KEEP_AWAKE_KEY = 'keep-screen-awake';
+let wakeLockPending = false;
+
+function wakeLockSupported() {
+    return 'wakeLock' in navigator;
+}
+
+function keepAwakeSetting() {
+    try { return localStorage.getItem(KEEP_AWAKE_KEY) !== 'off'; } catch { return true; }
+}
+
+function setKeepAwake(on) {
+    try { localStorage.setItem(KEEP_AWAKE_KEY, on ? 'on' : 'off'); } catch { /* не критично */ }
+    syncWakeLock();
+}
+
+// Нужен ли сейчас замок: страница на экране и (настройка включена или открыт пульт)
+function wantWakeLock() {
+    if (GUEST_EVENT_ID || BINGO_EVENT_ID) return false; // гостевые страницы — без этого
+    return document.visibilityState === 'visible' && (keepAwakeSetting() || showMode.classList.contains('open'));
+}
+
+async function syncWakeLock() {
+    if (!wakeLockSupported()) return;
+    const held = wakeLock && !wakeLock.released;
+    if (!wantWakeLock()) {
+        if (held) wakeLock.release().catch(() => {});
+        wakeLock = null;
+        return;
+    }
+    if (held || wakeLockPending) return; // один замок, без «висящих» лишних
+    wakeLockPending = true;
     try {
         const lock = await navigator.wakeLock.request('screen');
-        // Пульт успели закрыть, пока ждали разрешения, — замок сразу отпускаем
-        if (!showMode.classList.contains('open')) {
-            lock.release().catch(() => {});
-            return;
-        }
-        wakeLock = lock;
+        // Пока ждали, замок мог стать не нужен (выключили настройку, закрыли пульт)
+        if (!wantWakeLock()) lock.release().catch(() => {});
+        else wakeLock = lock;
     } catch (error) {
+        // Например, браузер разрешает только после касания экрана — попробуем при следующем
         console.warn("Не удалось запретить гашение экрана:", error);
+    } finally {
+        wakeLockPending = false;
     }
 }
 
-// Wake Lock снимается, когда вкладка уходит в фон — возвращаем его
-document.addEventListener('visibilitychange', () => {
-    // Только если прежний действительно снят: лишний «висящий» замок не отпустился бы
-    // при закрытии пульта, и экран перестал бы гаснуть вовсе
-    if (document.visibilityState === 'visible' && showMode.classList.contains('open')
-        && (!wakeLock || wakeLock.released)) requestWakeLock();
-});
+document.addEventListener('visibilitychange', syncWakeLock);
+// Некоторые браузеры дают замок только в ответ на действие пользователя — повторяем
+// попытку при касании, если замка ещё нет (проверка дешёвая, запроса без нужды нет)
+document.addEventListener('pointerdown', () => {
+    if (wakeLockSupported() && (!wakeLock || wakeLock.released) && wantWakeLock()) syncWakeLock();
+}, { capture: true, passive: true });
+syncWakeLock();
 
 function currentBlockIndex() {
     if (!playingBlock || !currentEvent || playingBlock.eventId !== currentEvent.id) return -1;
@@ -2642,8 +2676,25 @@ function renderAccountSheet(user, statusText = '') {
             el('button', { class: 'link-btn wide', dataset: { action: 'close' } }, 'Продолжить без входа')
         ];
     }
-    accountSheet.querySelector('.sheet-card').replaceChildren(close, ...body.filter(Boolean));
+    accountSheet.querySelector('.sheet-card').replaceChildren(close, ...body.filter(Boolean), screenSettingNode());
 }
+
+// Настройка «Не гасить экран» — внизу листа аккаунта
+function screenSettingNode() {
+    const supported = wakeLockSupported();
+    return el('div', { class: 'sheet-setting' },
+        el('label', { class: 'setting-row' },
+            el('span', { class: 'setting-text' },
+                el('strong', {}, 'Не гасить экран'),
+                el('span', {}, supported
+                    ? 'Пока приложение открыто, телефон не уходит в сон — как в навигаторе.'
+                    : 'Этот браузер не умеет держать экран включённым. На iPhone нужна iOS 18.4 или новее.')),
+            el('input', { type: 'checkbox', class: 'toggle', checked: supported && keepAwakeSetting(), disabled: !supported, dataset: { setting: 'keep-awake' } })));
+}
+
+accountSheet.addEventListener('change', (e) => {
+    if (e.target.dataset.setting === 'keep-awake') setKeepAwake(e.target.checked);
+});
 
 function setAccountStatus(text, isError = false) {
     const status = document.getElementById('account-status');
