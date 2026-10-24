@@ -1,4 +1,4 @@
-const CACHE_NAME = 'music-app-shell-v8';
+const CACHE_NAME = 'music-app-shell-v9';
 
 // Свои аудиофайлы, скачанные кнопкой «Скачать для офлайна» в мероприятии.
 // Кладёт их туда сама страница (main.js), воркер только отдаёт. Имя без версии:
@@ -16,7 +16,8 @@ const PRECACHE_ASSETS = [
   './favicon.svg',
   './icon-192.png',
   './icon-512.png',
-  './icon-512-maskable.png'
+  './icon-512-maskable.png',
+  './apple-touch-icon.png'
 ];
 
 // Установка воркера и кэширование стабильных файлов оболочки приложения

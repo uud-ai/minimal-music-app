@@ -1998,3 +1998,298 @@ body.show-open {
     width: 1.3em;
     height: 1.3em;
 }
+
+/* --- 17. ПЛЕЕР НА ВЕСЬ ЭКРАН --- */
+/* Обложка и название в мини-плеере — одна кнопка, открывающая большой плеер */
+.np-open {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex: 1;
+    min-width: 0;
+    padding: 0;
+    border: none;
+    background: none;
+    text-align: left;
+    cursor: pointer;
+}
+
+body.full-player-open {
+    overflow: hidden;
+}
+
+#full-player {
+    position: fixed;
+    inset: 0;
+    z-index: 150;
+    overflow: hidden;
+    background: var(--bg);
+    color: var(--ink);
+    animation: fp-rise 0.32s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+@keyframes fp-rise {
+    from { transform: translateY(6%); opacity: 0; }
+    to { transform: none; opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    #full-player {
+        animation: none;
+    }
+}
+
+/* Фон — та же обложка, сильно размытая: экран окрашивается в цвета трека */
+.fp-backdrop {
+    position: absolute;
+    inset: -12%;
+    pointer-events: none;
+}
+
+.fp-backdrop img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    filter: blur(56px) saturate(1.35);
+    opacity: 0.5;
+}
+
+.fp-backdrop img:not([src]) {
+    display: none;
+}
+
+.fp-backdrop::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(to bottom, transparent 0%, var(--bg) 72%);
+}
+
+.fp-inner {
+    position: relative;
+    height: 100%;
+    max-width: 520px;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    padding: calc(10px + env(safe-area-inset-top)) 26px calc(28px + env(safe-area-inset-bottom));
+}
+
+.fp-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin: 0 -10px;
+}
+
+.fp-icon-btn {
+    display: grid;
+    place-items: center;
+    width: 48px;
+    height: 48px;
+    border: none;
+    border-radius: 50%;
+    background: none;
+    color: var(--ink);
+    cursor: pointer;
+    transition: transform 0.15s ease;
+}
+
+.fp-icon-btn svg {
+    width: 28px;
+    height: 28px;
+}
+
+.fp-icon-btn:active {
+    transform: scale(0.88);
+}
+
+#fp-like {
+    color: var(--muted);
+}
+
+#fp-like svg {
+    width: 26px;
+    height: 26px;
+}
+
+#fp-like[data-state="liked"] {
+    color: var(--accent);
+}
+
+.fp-stage {
+    flex: 1;
+    min-height: 0;
+    display: grid;
+    place-items: center;
+}
+
+.fp-cover {
+    width: min(100%, 44vh, 440px);
+    aspect-ratio: 1;
+    border-radius: 22px;
+    overflow: hidden;
+    background: var(--tint);
+    color: var(--muted);
+    display: grid;
+    place-items: center;
+    box-shadow: 0 30px 60px -24px rgba(0, 0, 0, 0.55);
+}
+
+.fp-cover img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+
+/* hqdefault — 4:3 с чёрными полосами вокруг кадра 16:9: срезаем их увеличением */
+.fp-cover.letterboxed img {
+    transform: scale(1.34);
+}
+
+.fp-cover > svg {
+    width: 34%;
+    height: 34%;
+    stroke-width: 1.2;
+}
+
+.fp-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+}
+
+/* Название — антиквой, как заголовки приложения; длинное — в две строки */
+#fp-title {
+    font-family: var(--font-display);
+    font-style: italic;
+    font-weight: 600;
+    font-size: 2rem;
+    line-height: 1.08;
+    color: var(--ink);
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+.fp-artist {
+    align-self: flex-start;
+    max-width: 100%;
+    padding: 2px 0;
+    border: none;
+    background: none;
+    font-size: 1rem;
+    color: var(--muted);
+    text-align: left;
+    text-decoration: underline dotted;
+    text-decoration-color: var(--line);
+    text-underline-offset: 4px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    cursor: pointer;
+}
+
+.fp-artist:disabled {
+    text-decoration: none;
+    cursor: default;
+}
+
+.fp-artist:not(:disabled):active {
+    color: var(--accent);
+}
+
+#fp-seek {
+    width: 100%;
+    -webkit-appearance: none;
+    appearance: none;
+    height: 4px;
+    border-radius: 2px;
+    background: linear-gradient(to right, var(--accent-fill) var(--p, 0%), var(--line) var(--p, 0%));
+    outline: none;
+    cursor: pointer;
+}
+
+#fp-seek::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: var(--accent-fill);
+    cursor: pointer;
+}
+
+#fp-seek::-moz-range-thumb {
+    width: 16px;
+    height: 16px;
+    border: none;
+    border-radius: 50%;
+    background: var(--accent-fill);
+    cursor: pointer;
+}
+
+#fp-seek::-moz-range-progress {
+    height: 4px;
+    border-radius: 2px;
+    background: var(--accent-fill);
+}
+
+.fp-times {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 8px;
+    font-size: 0.78rem;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+}
+
+.fp-controls {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 34px;
+}
+
+#fp-prev svg, #fp-next svg {
+    width: 32px;
+    height: 32px;
+}
+
+#fp-playpause {
+    display: grid;
+    place-items: center;
+    width: 78px;
+    height: 78px;
+    border: none;
+    border-radius: 50%;
+    background: var(--accent-fill);
+    color: var(--on-accent);
+    cursor: pointer;
+    box-shadow: 0 14px 30px -12px rgba(120, 88, 20, 0.6);
+    transition: transform 0.15s ease;
+}
+
+#fp-playpause svg {
+    width: 32px;
+    height: 32px;
+}
+
+#fp-playpause:active {
+    transform: scale(0.92);
+}
+
+/* Низкий экран (телефон боком): обложку уменьшаем, чтобы влезли кнопки */
+@media (max-height: 560px) {
+    .fp-cover {
+        width: min(100%, 34vh);
+    }
+
+    #fp-title {
+        font-size: 1.5rem;
+    }
+}

@@ -12,7 +12,7 @@
     <link rel="manifest" href="manifest.json">
     <link rel="icon" href="favicon.svg" type="image/svg+xml">
     <link rel="icon" href="icon-192.png" type="image/png" sizes="192x192">
-    <link rel="apple-touch-icon" href="icon-192.png">
+    <link rel="apple-touch-icon" href="apple-touch-icon.png">
     
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -54,11 +54,14 @@
         <div id="audio-wrapper" class="hidden">
             <div id="now-playing">
                 <div class="np-top">
-                    <div id="np-cover" class="cover"></div>
-                    <div class="np-info">
-                        <strong id="np-title">—</strong>
-                        <span id="np-artist"></span>
-                    </div>
+                    <!-- Обложка и название — кнопка: открывает плеер на весь экран -->
+                    <button id="np-open" class="np-open" aria-label="Открыть плеер на весь экран">
+                        <span id="np-cover" class="cover"></span>
+                        <span class="np-info">
+                            <strong id="np-title">—</strong>
+                            <span id="np-artist"></span>
+                        </span>
+                    </button>
                     <div class="np-controls">
                         <button id="np-like" aria-label="Добавить в «Моя музыка»"></button>
                         <button id="np-playpause" aria-label="Играть"></button>
@@ -72,6 +75,34 @@
             </div>
             <!-- Свои файлы из облака играют здесь; треки YouTube — в плеере режима ведущего -->
             <audio id="file-player" preload="auto"></audio>
+        </div>
+
+        <!-- Плеер на весь экран: большая обложка, размытый фон из неё, перемотка и
+             «предыдущий / пауза / следующий». Открывается нажатием на мини-плеер -->
+        <div id="full-player" class="hidden" role="dialog" aria-modal="true" aria-label="Плеер">
+            <div class="fp-backdrop" aria-hidden="true"><img id="fp-bg" alt=""></div>
+            <div class="fp-inner">
+                <div class="fp-top">
+                    <button id="fp-close" class="fp-icon-btn" aria-label="Свернуть плеер"><svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9.5 6 6 6-6"/></svg></button>
+                    <button id="fp-like" class="fp-icon-btn"></button>
+                </div>
+                <div class="fp-stage">
+                    <div id="fp-cover" class="fp-cover"></div>
+                </div>
+                <div class="fp-meta">
+                    <strong id="fp-title">—</strong>
+                    <button id="fp-artist" class="fp-artist"></button>
+                </div>
+                <div class="fp-progress">
+                    <input type="range" id="fp-seek" min="0" max="100" value="0" step="0.1" aria-label="Перемотка">
+                    <div class="fp-times"><span id="fp-current">0:00</span><span id="fp-duration">0:00</span></div>
+                </div>
+                <div class="fp-controls">
+                    <button id="fp-prev" class="fp-icon-btn" aria-label="Предыдущий трек"><svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M18 18.5v-13L8.5 12z" fill="currentColor"/><path d="M5.5 5.5v13"/></svg></button>
+                    <button id="fp-playpause" aria-label="Играть"></button>
+                    <button id="fp-next" class="fp-icon-btn" aria-label="Следующий трек"><svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M6 5.5v13l9.5-6.5z" fill="currentColor"/><path d="M18.5 5.5v13"/></svg></button>
+                </div>
+            </div>
         </div>
 
         <!-- Режим ведущего. Закрытый оверлей не скрыт через display:none, а сдвинут за

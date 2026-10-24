@@ -135,6 +135,17 @@ const npSeek = document.getElementById('np-seek');
 const npCurrent = document.getElementById('np-current');
 const npDuration = document.getElementById('np-duration');
 const npCover = document.getElementById('np-cover');
+const fullPlayer = document.getElementById('full-player');
+const fpBg = document.getElementById('fp-bg');
+const fpCover = document.getElementById('fp-cover');
+const fpTitle = document.getElementById('fp-title');
+const fpArtist = document.getElementById('fp-artist');
+const fpSeek = document.getElementById('fp-seek');
+const fpCurrent = document.getElementById('fp-current');
+const fpDuration = document.getElementById('fp-duration');
+const fpPlayPause = document.getElementById('fp-playpause');
+const fpLike = document.getElementById('fp-like');
+let nowPlayingTrack = null; // трек, который сейчас в плеере (для большого экрана)
 
 // --- 2.2 ИКОНКИ ---
 // Линейные SVG-иконки вместо эмодзи: эмодзи на каждом телефоне рисуются по-своему
@@ -212,8 +223,10 @@ function setLikeState(btn, state) {
 }
 
 function setPlayPauseIcon(playing) {
-    npPlayPause.innerHTML = playing ? ICONS.pause : ICONS.play;
-    npPlayPause.setAttribute('aria-label', playing ? 'Пауза' : 'Играть');
+    for (const btn of [npPlayPause, fpPlayPause]) {
+        btn.innerHTML = playing ? ICONS.pause : ICONS.play;
+        btn.setAttribute('aria-label', playing ? 'Пауза' : 'Играть');
+    }
 }
 
 // Обложка: у видео YouTube — кадр-превью по ID, у своего файла — нота на подложке
@@ -402,7 +415,7 @@ function onPlaybackPaused() {
 function onPlaybackEnded() {
     stopProgressLoop();
     setSeek(0);
-    npCurrent.textContent = '0:00';
+    setTimes(0);
 
     // Квиз и бинго сами решают, что дальше
     if (gameOnEnded()) {
@@ -447,6 +460,13 @@ function playNext() {
     return false;
 }
 
+// В «Угадай мелодию» и бинго «следующий» с наушников или из плеера — ход игры, а не просто трек
+function nextTrackAction() {
+    if (activeGame && activeGame.type === 'quiz') quizNext();
+    else if (activeGame && activeGame.type === 'bingo') bingoNext();
+    else playNext();
+}
+
 function playPrevious() {
     if (!activeQueue || activeQueue.length === 0) return;
     if (playerTime() > 3) {
@@ -470,11 +490,7 @@ function setupMediaSession() {
         if (details.seekTime != null) playerSeek(details.seekTime);
     });
     // В «Угадай мелодию» и бинго «следующий» с наушников — ход игры, а не просто трек
-    safe('nexttrack', () => {
-        if (activeGame && activeGame.type === 'quiz') quizNext();
-        else if (activeGame && activeGame.type === 'bingo') bingoNext();
-        else playNext();
-    });
+    safe('nexttrack', nextTrackAction);
     safe('previoustrack', playPrevious);
 }
 setupMediaSession();
@@ -505,8 +521,15 @@ function formatTime(seconds) {
 
 // Позиция ползунка и закрашенная (латунная) часть дорожки до него
 function setSeek(percent) {
-    npSeek.value = percent;
-    npSeek.style.setProperty('--p', `${Number(percent) || 0}%`);
+    for (const seek of [npSeek, fpSeek]) {
+        seek.value = percent;
+        seek.style.setProperty('--p', `${Number(percent) || 0}%`);
+    }
+}
+
+function setTimes(current, duration = null) {
+    npCurrent.textContent = fpCurrent.textContent = formatTime(current);
+    if (duration !== null) npDuration.textContent = fpDuration.textContent = formatTime(duration);
 }
 
 function startProgressLoop() {
@@ -515,11 +538,8 @@ function startProgressLoop() {
         if (isSeeking) return;
         const duration = playerDuration();
         const current = playerTime();
-        if (duration > 0) {
-            setSeek((current / duration) * 100);
-            npDuration.textContent = formatTime(duration);
-        }
-        npCurrent.textContent = formatTime(current);
+        if (duration > 0) setSeek((current / duration) * 100);
+        setTimes(current, duration > 0 ? duration : null);
     }, 500);
 }
 
@@ -557,17 +577,19 @@ npLike.addEventListener('click', async () => {
     }
 });
 
-npSeek.addEventListener('input', () => {
-    isSeeking = true;
-    setSeek(npSeek.value);
-    npCurrent.textContent = formatTime((npSeek.value / 100) * playerDuration());
-});
+for (const seek of [npSeek, fpSeek]) {
+    seek.addEventListener('input', () => {
+        isSeeking = true;
+        setSeek(seek.value);
+        setTimes((seek.value / 100) * playerDuration());
+    });
 
-npSeek.addEventListener('change', () => {
-    const duration = playerDuration();
-    if (duration > 0) playerSeek((npSeek.value / 100) * duration);
-    isSeeking = false;
-});
+    seek.addEventListener('change', () => {
+        const duration = playerDuration();
+        if (duration > 0) playerSeek((seek.value / 100) * duration);
+        isSeeking = false;
+    });
+}
 
 // --- 5. ЛОГИКА НАВИГАЦИИ ---
 // Переключает экран: 'search' | 'library' | 'events'
@@ -1221,15 +1243,124 @@ function playMusic(track) {
     npTitle.textContent = name || '—';
     npArtist.textContent = artist || '';
     fillCover(npCover, track);
+    nowPlayingTrack = track;
+    renderFullPlayer();
     setSeek(0);
-    npCurrent.textContent = '0:00';
-    npDuration.textContent = '0:00';
+    setTimes(0, 0);
     audioWrapper.classList.remove('hidden');
     updateMediaSession(name, artist, track);
     renderShowNow();
 
     console.log("Играет:", name);
 }
+
+// --- 10.1 ПЛЕЕР НА ВЕСЬ ЭКРАН ---
+// Открывается нажатием на обложку/название в мини-плеере. Управление то же, что у
+// мини-плеера: кнопки здесь лишь вызывают общие функции, поэтому оба всегда в одном
+// состоянии. Кнопка «назад» на Android и свайп вниз сворачивают плеер.
+const npOpen = document.getElementById('np-open');
+
+function renderFullPlayer() {
+    const track = nowPlayingTrack;
+    fpTitle.textContent = track ? track.name : '—';
+    const artist = track ? track.artist_name || '' : '';
+    fpArtist.textContent = artist;
+    // Канал кликабелен, как в списках: откроются остальные треки автора
+    fpArtist.disabled = !(track && track.channelId);
+    fpArtist.setAttribute('aria-label', fpArtist.disabled ? artist : `Все треки: ${artist}`);
+    fillBigCover(fpCover, track);
+}
+
+// Большая обложка: сначала кадр максимального качества; если у видео его нет
+// (YouTube отдаёт заглушку 120×90), берём hqdefault — он 4:3 с чёрными полосами
+// сверху и снизу, их срезаем увеличением (класс letterboxed)
+function fillBigCover(box, track) {
+    box.replaceChildren();
+    box.classList.remove('letterboxed');
+    const id = track && track.source !== 'file' ? track.audio : '';
+    box.dataset.video = id || '';
+    if (!id) {
+        box.innerHTML = ICONS.note;
+        fpBg.removeAttribute('src');
+        return;
+    }
+    fpBg.src = coverUrl(track, 'mqdefault'); // фон всё равно размыт — хватит маленькой
+    const img = new Image();
+    img.alt = '';
+    img.decoding = 'async';
+    const stale = () => box.dataset.video !== id; // трек успел смениться
+    const useFallback = () => {
+        if (stale()) return;
+        img.onload = null;
+        img.onerror = () => { if (!stale()) box.innerHTML = ICONS.note; };
+        box.classList.add('letterboxed');
+        img.src = coverUrl(track, 'hqdefault');
+    };
+    img.onload = () => { if (img.naturalWidth <= 120) useFallback(); };
+    img.onerror = useFallback;
+    img.src = coverUrl(track, 'maxresdefault');
+    box.append(img);
+}
+
+// Кнопка ♡/корзины большого плеера повторяет кнопку мини-плеера
+function syncFullPlayerLike() {
+    fpLike.innerHTML = npLike.innerHTML;
+    fpLike.dataset.state = npLike.dataset.state || '';
+    fpLike.setAttribute('aria-label', npLike.getAttribute('aria-label') || '');
+    fpLike.classList.toggle('hidden', npLike.classList.contains('hidden'));
+}
+new MutationObserver(syncFullPlayerLike).observe(npLike, { attributes: true, childList: true, subtree: true });
+syncFullPlayerLike();
+
+function isFullPlayerOpen() {
+    return !fullPlayer.classList.contains('hidden');
+}
+
+function openFullPlayer() {
+    if (isFullPlayerOpen()) return;
+    renderFullPlayer();
+    fullPlayer.classList.remove('hidden');
+    document.body.classList.add('full-player-open');
+    // Запись в истории — чтобы «назад» на телефоне сворачивал плеер, а не уходил со страницы
+    try { history.pushState({ fullPlayer: true }, ''); } catch { /* не критично */ }
+    document.getElementById('fp-close').focus({ preventScroll: true });
+}
+
+function closeFullPlayer(fromHistory = false) {
+    if (!isFullPlayerOpen()) return;
+    fullPlayer.classList.add('hidden');
+    document.body.classList.remove('full-player-open');
+    if (!fromHistory && history.state && history.state.fullPlayer) history.back();
+    npOpen.focus({ preventScroll: true });
+}
+
+npOpen.addEventListener('click', openFullPlayer);
+document.getElementById('fp-close').addEventListener('click', () => closeFullPlayer());
+window.addEventListener('popstate', () => closeFullPlayer(true));
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && isFullPlayerOpen()) closeFullPlayer();
+});
+
+fpPlayPause.addEventListener('click', () => npPlayPause.click());
+fpLike.addEventListener('click', () => npLike.click());
+document.getElementById('fp-prev').addEventListener('click', playPrevious);
+document.getElementById('fp-next').addEventListener('click', nextTrackAction);
+fpArtist.addEventListener('click', () => {
+    const track = nowPlayingTrack;
+    if (!track || !track.channelId) return;
+    closeFullPlayer();
+    openChannel(track.channelId, track.artist_name);
+});
+
+// Свайп вниз по плееру сворачивает его (кроме жеста по ползунку перемотки)
+let fpTouchY = null;
+fullPlayer.addEventListener('touchstart', (e) => {
+    fpTouchY = e.target.closest('input') ? null : e.touches[0].clientY;
+}, { passive: true });
+fullPlayer.addEventListener('touchend', (e) => {
+    if (fpTouchY !== null && e.changedTouches[0].clientY - fpTouchY > 90) closeFullPlayer();
+    fpTouchY = null;
+}, { passive: true });
 
 // --- 11. МЕРОПРИЯТИЯ И СЦЕНАРИЙ ---
 // Мероприятие — документ в коллекции events: название, тип, дата и блоки сценария.
