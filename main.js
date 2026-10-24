@@ -391,7 +391,7 @@ function parseId3Picture(b, version) {
         p = 4;
     } else {
         const end = b.indexOf(0, p);
-        if (end < 0) return null;
+        if (end < 0 || end - p > 64) return null; // это не MIME-тип — тег повреждён
         mime = ascii(b, p, end).toLowerCase();
         p = end + 1;
     }
@@ -626,7 +626,7 @@ function onPlaybackError() {
         document.body.classList.remove('audio-playing');
         stopProgressLoop();
         setPlayPauseIcon(false);
-        npTitle.textContent = 'Трек недоступен';
+        npTitle.textContent = fpTitle.textContent = 'Трек недоступен';
         updateShowPlayPause();
     }
 }
@@ -828,7 +828,7 @@ navEvents.addEventListener('click', () => {
 // --- 6. РАБОТА С YOUTUBE API (ПОИСК) ---
 searchInput.addEventListener('keypress', (e) => {
     if (e.key === 'Enter') {
-        const queryText = searchInput.value;
+        const queryText = searchInput.value.trim();
         if (queryText) searchMusic(queryText);
     }
 });
@@ -907,7 +907,9 @@ async function runSearch(queryText, channelId, loadingText) {
 
 // Результаты поиска, а над треками канала — шапка с его названием и «← Назад»
 function renderSearchResults() {
-    renderTracks(lastSearchTracks, false);
+    renderTracks(lastSearchTracks, false, {
+        emptyText: lastSearchChannel ? 'У этого канала не нашлось видео, которые можно включить здесь.' : 'Ничего не нашлось. Попробуйте написать иначе.'
+    });
     if (lastSearchChannel) trackList.prepend(...channelHeader());
 }
 
@@ -1017,6 +1019,8 @@ loadMoreBtn.addEventListener('click', loadMoreTracks);
 // --- 7. ОТРИСОВКА ИНТЕРФЕЙСА ---
 // sections — заголовки внутри списка: [{ start, title, action: { label, name } }]
 function renderTracks(tracks, isLibrary, { sections = [], emptyText = 'Список пуст' } = {}) {
+    // Старые карточки уходят со страницы — перестаём следить за их обложками
+    if (coverObserver) coverObserver.disconnect();
     trackList.innerHTML = '';
     currentTracks = tracks || [];
     currentIsLibrary = isLibrary;
@@ -1382,6 +1386,7 @@ async function handleDelete(btn) {
         try {
             await filesApi(`/files/${encodeFileKey(btn.dataset.key)}`, { method: 'DELETE' });
             recentlyDeleted.add(btn.dataset.key);
+            writeRecent(RECENT_TRACKS_KEY, readRecent(RECENT_TRACKS_KEY).filter(t => t.fileKey !== btn.dataset.key));
         } catch (error) {
             console.error("Ошибка удаления файла:", error);
             alert("Не удалось удалить файл.");
@@ -1625,7 +1630,7 @@ function playMusic(track) {
     npArtist.textContent = artist || '';
     fillCover(npCover, track);
     nowPlayingTrack = track;
-    renderFullPlayer();
+    if (isFullPlayerOpen()) renderFullPlayer();
     rememberTrack(track);
     setSeek(0);
     setTimes(0, 0);
@@ -1707,7 +1712,7 @@ function openFullPlayer() {
     fullPlayer.classList.remove('hidden');
     document.body.classList.add('full-player-open');
     // Запись в истории — чтобы «назад» на телефоне сворачивал плеер, а не уходил со страницы
-    try { history.pushState({ fullPlayer: true }, ''); } catch { /* не критично */ }
+    pushOverlayState('full-player');
     document.getElementById('fp-close').focus({ preventScroll: true });
 }
 
@@ -1715,13 +1720,27 @@ function closeFullPlayer(fromHistory = false) {
     if (!isFullPlayerOpen()) return;
     fullPlayer.classList.add('hidden');
     document.body.classList.remove('full-player-open');
-    if (!fromHistory && history.state && history.state.fullPlayer) history.back();
+    if (!fromHistory) popOverlayState('full-player');
     npOpen.focus({ preventScroll: true });
+}
+
+// Оверлеи (большой плеер, пульт ведущего) кладут запись в историю браузера, чтобы
+// системное «назад» закрывало их. Закрытие кнопкой убирает свою запись
+function pushOverlayState(name) {
+    try { history.pushState({ overlay: name }, ''); } catch { /* не критично */ }
+}
+
+function popOverlayState(name) {
+    if (history.state && history.state.overlay === name) history.back();
 }
 
 npOpen.addEventListener('click', openFullPlayer);
 document.getElementById('fp-close').addEventListener('click', () => closeFullPlayer());
-window.addEventListener('popstate', () => closeFullPlayer(true));
+window.addEventListener('popstate', () => {
+    // Закрываем верхний: большой плеер может быть открыт поверх только без пульта
+    if (isFullPlayerOpen()) closeFullPlayer(true);
+    else if (showMode.classList.contains('open')) closeShowMode(true);
+});
 document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && isFullPlayerOpen()) closeFullPlayer();
 });
@@ -2375,6 +2394,7 @@ let wakeLock = null;
 
 function openShowMode() {
     if (!currentEvent) return;
+    if (!showMode.classList.contains('open')) pushOverlayState('show-mode');
     showEventTitle.textContent = currentEvent.title;
     showMode.classList.add('open');
     showMode.removeAttribute('inert');
@@ -2388,7 +2408,9 @@ function openShowMode() {
     updateShowPlayPause();
 }
 
-function closeShowMode() {
+function closeShowMode(fromHistory = false) {
+    if (!showMode.classList.contains('open')) return;
+    if (!fromHistory) popOverlayState('show-mode');
     showMode.classList.remove('open');
     showMode.setAttribute('inert', '');
     document.body.classList.remove('show-open');
@@ -2465,7 +2487,7 @@ showBlocks.addEventListener('click', (e) => {
     if (btn) playBlock(Number(btn.dataset.block));
 });
 
-document.getElementById('show-close').addEventListener('click', closeShowMode);
+document.getElementById('show-close').addEventListener('click', () => closeShowMode());
 
 document.getElementById('show-next').addEventListener('click', () => {
     if (!currentEvent || currentEvent.blocks.length === 0) return;
@@ -2766,6 +2788,8 @@ async function migrateAnonData(fb, user, saved) {
         const to = track.fileKey && keyMap.get(track.fileKey);
         return to ? { ...track, fileKey: to, audio: `${FILES_API}/files/${encodeFileKey(to)}` } : track;
     };
+
+    writeRecent(RECENT_TRACKS_KEY, readRecent(RECENT_TRACKS_KEY).map(remapTrack));
 
     // 2. Лайки — без дублей с теми, что уже есть в аккаунте
     const existing = await fb.getDocs(fb.query(fb.collection(fb.db, "liked_tracks"), fb.where("uid", "==", user.uid)));
@@ -3226,6 +3250,7 @@ async function startGuestPage(eventId) {
         const btn = e.target.closest('[data-video-id]');
         if (!btn) return;
         const track = (results._tracks || []).find(t => t.id === btn.dataset.videoId);
+        if (!track) return;
         btn.disabled = true;
         if (await submit({ name: track.name, artist_name: track.artist_name, videoId: track.id })) btn.innerHTML = ICONS.check;
         else btn.disabled = false;

@@ -5,6 +5,9 @@ const CACHE_NAME = 'music-app-shell-v9';
 // при обновлении оболочки этот кэш не удаляется, иначе пропадала бы музыка.
 const FILES_CACHE = 'music-files';
 const FILES_ORIGIN = 'https://minimal-music-files.uudnik.workers.dev';
+// Обложки своих MP3, извлечённые из ID3-тегов (кладёт main.js) — тоже без версии,
+// иначе каждое обновление приложения заставляло бы скачивать их заново
+const COVERS_CACHE = 'music-covers';
 
 // Только стабильные пути из public/ — хэшированные assets/index-*.js/css
 // от vite build сюда не входят (их имя меняется на каждой сборке),
@@ -66,7 +69,7 @@ self.addEventListener('activate', (event) => {
     caches.keys().then((cacheNames) => {
       return Promise.all(
         cacheNames.map((cacheName) => {
-          if (cacheName !== CACHE_NAME && cacheName !== FILES_CACHE) {
+          if (cacheName !== CACHE_NAME && cacheName !== FILES_CACHE && cacheName !== COVERS_CACHE) {
             console.log('Удаление старого кэша:', cacheName);
             return caches.delete(cacheName);
           }
