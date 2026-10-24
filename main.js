@@ -149,8 +149,52 @@ const ICONS = {
     trash: svg('<path d="M4.5 7h15M9.5 7V5.2c0-.7.5-1.2 1.2-1.2h2.6c.7 0 1.2.5 1.2 1.2V7M6.5 7l.8 11.6c.1.8.7 1.4 1.5 1.4h6.4c.8 0 1.4-.6 1.5-1.4L17.5 7M10.3 11v5M13.7 11v5"/>'),
     busy: svg('<path d="M12 4a8 8 0 1 0 8 8" class="spin"/>'),
     error: svg('<circle cx="12" cy="12" r="8"/><path d="M12 8v4.5M12 16h.01"/>'),
-    note: svg('<path d="M9 18V6l10-2v12"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="16.5" cy="16" r="2.5"/>')
+    note: svg('<path d="M9 18V6l10-2v12"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="16.5" cy="16" r="2.5"/>'),
+    plus: svg('<path d="M12 5v14M5 12h14"/>'),
+    check: svg('<path d="m5 12.5 4.5 4.5L19 7.5"/>'),
+    close: svg('<path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/>'),
+    arrowUp: svg('<path d="M12 19V5M6.5 10.5 12 5l5.5 5.5"/>'),
+    arrowDown: svg('<path d="M12 5v14M6.5 13.5 12 19l5.5-5.5"/>'),
+    arrowLeft: svg('<path d="M19 12H5M10.5 6.5 5 12l5.5 5.5"/>'),
+    download: svg('<path d="M12 4v11M7 10.5l5 5 5-5M5 19.5h14"/>'),
+    copy: svg('<rect x="8.5" y="8.5" width="11.5" height="11.5" rx="2"/><path d="M15.5 8.5V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v7.5a2 2 0 0 0 2 2h2.5"/>'),
+    stage: svg('<rect x="3" y="4" width="18" height="12" rx="2"/><path d="M12 16v4M8 20h8"/><path d="M10.5 7.8v4.4l3.6-2.2z" fill="currentColor"/>'),
+    printer: svg('<path d="M7 9V4h10v5"/><rect x="4" y="9" width="16" height="7" rx="2"/><rect x="7" y="13.5" width="10" height="6.5" rx="1"/>'),
+    phone: svg('<rect x="7" y="3" width="10" height="18" rx="2.5"/><path d="M11 18h2"/>'),
+    qr: svg('<rect x="4" y="4" width="6" height="6" rx="1"/><rect x="14" y="4" width="6" height="6" rx="1"/><rect x="4" y="14" width="6" height="6" rx="1"/><path d="M14 14h2v2h-2zM18 18h2v2h-2zM14 18v2M18 14h2"/>'),
+    loop: svg('<path d="M17 3l3 3-3 3M4 11.5V10a4 4 0 0 1 4-4h12M7 21l-3-3 3-3M20 12.5V14a4 4 0 0 1-4 4H4"/>'),
+    signal: svg('<path d="M4 10v4h3l7 4V6l-7 4H4zM17.5 9a4 4 0 0 1 0 6"/>'),
+    silence: svg('<path d="M4 10v4h3l6 4V6l-6 4H4zM16.5 9.5l5 5M21.5 9.5l-5 5"/>'),
+    freeze: svg('<path d="M12 3v18M4.2 7.5l15.6 9M4.2 16.5l15.6-9M9.5 4.5 12 7l2.5-2.5M9.5 19.5 12 17l2.5 2.5"/>'),
+    quiz: svg('<circle cx="12" cy="12" r="8.5"/><path d="M9.7 9.4a2.4 2.4 0 1 1 3.2 2.3c-.6.3-.9.8-.9 1.4v.5M12 16.6h.01"/>'),
+    bingo: svg('<rect x="4" y="4" width="16" height="16" rx="2"/><path d="M9.3 4v16M14.7 4v16M4 9.3h16M4 14.7h16"/>'),
+    eye: svg('<path d="M2.5 12s3.5-6.5 9.5-6.5 9.5 6.5 9.5 6.5-3.5 6.5-9.5 6.5S2.5 12 2.5 12z"/><circle cx="12" cy="12" r="2.8"/>'),
+    skip: svg('<path d="M6 5.5v13l9.5-6.5z" fill="currentColor"/><path d="M18.5 5.5v13"/>'),
+    stop: svg('<rect x="6" y="6" width="12" height="12" rx="2"/>', true),
+    folder: svg('<path d="M3.5 7.5a2 2 0 0 1 2-2h4l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/>'),
+    clock: svg('<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>'),
+    star: svg('<path d="M12 3.5l2.4 5.2 5.6.6-4.2 3.8 1.2 5.5L12 15.8l-5 2.8 1.2-5.5L4 9.3l5.6-.6z"/>'),
+    briefcase: svg('<rect x="3.5" y="7.5" width="17" height="12" rx="2"/><path d="M9 7.5V6a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v1.5M3.5 13h17"/>'),
+    balloon: svg('<path d="M12 15c-3.3 0-6-3-6-6.5S8.7 2.5 12 2.5s6 2.6 6 6-2.7 6.5-6 6.5zM10.8 15l-.6 1.6h3.6l-.6-1.6M12 16.6c0 2.2-1.8 2.6-1 4.9"/>'),
+    mic: svg('<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M6 11a6 6 0 0 0 12 0M12 17v4M9 21h6"/>'),
+    medal: svg('<circle cx="12" cy="15" r="5"/><path d="M8.5 3.5 12 10l3.5-6.5"/><path d="M12 12.6l.8 1.5 1.6.2-1.2 1.1.3 1.6-1.5-.8-1.5.8.3-1.6-1.2-1.1 1.6-.2z" fill="currentColor" stroke="none"/>'),
+    rings: svg('<circle cx="9" cy="14.5" r="5"/><circle cx="15" cy="14.5" r="5"/><path d="M10.5 4.5h3L15 6.8l-3 2.2-3-2.2z"/>'),
+    calendar: svg('<rect x="4" y="5.5" width="16" height="14.5" rx="2.5"/><path d="M4 10h16M8.5 3.5v4M15.5 3.5v4"/>')
 };
+
+// Иконка как DOM-узел — для el(): el('button', {}, ico('copy'), 'Копия')
+function ico(name, cls = 'ic') {
+    const t = document.createElement('template');
+    t.innerHTML = ICONS[name];
+    const node = t.content.firstChild;
+    node.classList.add(cls);
+    return node;
+}
+
+// Кнопка с иконкой и подписью: подпись можно менять, не теряя иконку
+function setIconLabel(btn, name, text) {
+    btn.replaceChildren(ico(name), document.createTextNode(text));
+}
 
 // ♡ / ❤️ / корзина / ожидание / ошибка — состояние в data-state, а не в тексте кнопки
 const LIKE_STATES = {
@@ -652,7 +696,7 @@ function channelHeader() {
     if (!lastSearchChannel) return [];
     return [el('div', { class: 'channel-header' },
         el('button', { class: 'link-btn', dataset: { action: 'channel-back' } },
-            searchBack && searchBack.query ? `← К поиску «${searchBack.query}»` : '← Назад'),
+            ico('arrowLeft'), searchBack && searchBack.query ? `К поиску «${searchBack.query}»` : 'Назад'),
         el('strong', {}, `Треки канала: ${lastSearchChannel.title}`))];
 }
 
@@ -800,7 +844,7 @@ function renderTracks(tracks, isLibrary) {
         if (pickBlock()) {
             const addBtn = document.createElement('button');
             addBtn.className = 'add-btn';
-            addBtn.textContent = '＋';
+            addBtn.innerHTML = ICONS.plus;
             addBtn.setAttribute('aria-label', 'Добавить в блок');
             addBtn.dataset.index = String(index);
             actions.append(addBtn);
@@ -1026,7 +1070,7 @@ async function loadMyFiles() {
             fileKey: file.key,
             source: 'file',
             name: file.name.replace(/\.[a-z0-9]{2,4}$/i, ''),
-            artist_name: `📁 Мой файл · ${formatSize(file.size)}`,
+            artist_name: `Мой файл · ${formatSize(file.size)}`,
             audio: `${FILES_API}/files/${encodeFileKey(file.key)}`
         }));
     } catch (error) {
@@ -1193,29 +1237,29 @@ function playMusic(track) {
 // (выход, награждение, гимн). Блок без треков — тишина (речи, тосты).
 // Блок шаблона: [название, фон по кругу?, игра] — игры см. раздел 16
 const EVENT_TYPES = {
-    corporate: { label: 'Корпоратив', icon: '🥂', blocks: [
+    corporate: { label: 'Корпоратив', icon: 'briefcase', blocks: [
         ['Сбор гостей', true], ['Открытие', false], ['Награждение', false],
         ['Банкет', true], ['Музыкальное бинго', false, 'bingo'], ['Угадай мелодию', false, 'quiz'],
         ['Танцы', true], ['Финал', false]
     ] },
-    kids: { label: 'Детский праздник', icon: '🎈', blocks: [
+    kids: { label: 'Детский праздник', icon: 'balloon', blocks: [
         ['Встреча гостей', true], ['Выход аниматора', false], ['Игра «Замри»', true, 'freeze'],
         ['Торт и свечи', false], ['Дискотека', true], ['Прощание', false]
     ] },
-    quizparty: { label: 'Квиз-вечеринка', icon: '🎤', blocks: [
+    quizparty: { label: 'Квиз-вечеринка', icon: 'mic', blocks: [
         ['Сбор гостей', true], ['Угадай мелодию: раунд 1', false, 'quiz'], ['Перерыв', true],
         ['Музыкальное бинго', false, 'bingo'], ['Угадай мелодию: финал', false, 'quiz'],
         ['Награждение', false], ['Танцы', true]
     ] },
-    official: { label: 'Официальный приём', icon: '🎖️', blocks: [
+    official: { label: 'Официальный приём', icon: 'medal', blocks: [
         ['Сбор гостей', true], ['Гимн', false], ['Выход официальных лиц', false],
         ['Выступления', false], ['Фуршет', true], ['Завершение', false]
     ] },
-    wedding: { label: 'Свадьба', icon: '💍', blocks: [
+    wedding: { label: 'Свадьба', icon: 'rings', blocks: [
         ['Сбор гостей', true], ['Выход молодых', false], ['Банкет', true],
         ['Первый танец', false], ['Торт', false], ['Танцы', true]
     ] },
-    other: { label: 'Другое', icon: '📅', blocks: [['Блок 1', true]] }
+    other: { label: 'Другое', icon: 'calendar', blocks: [['Блок 1', true]] }
 };
 
 let events = [];
@@ -1355,7 +1399,7 @@ async function downloadEventForOffline(button) {
     let failed = 0;
     button.disabled = true;
     for (const track of files) {
-        button.textContent = `⬇ Скачиваем ${done + failed + 1} из ${files.length}…`;
+        setIconLabel(button, 'download', `Скачиваем ${done + failed + 1} из ${files.length}…`);
         try {
             if (!(await cache.match(track.audio, { ignoreVary: true }))) {
                 const response = await fetch(track.audio);
@@ -1388,14 +1432,14 @@ async function renderOfflineStatus(ev, node) {
 
 function renderEventsList() {
     const typeSelect = el('select', { name: 'type' },
-        ...Object.entries(EVENT_TYPES).map(([value, info]) => el('option', { value }, `${info.icon} ${info.label}`)));
+        ...Object.entries(EVENT_TYPES).map(([value, info]) => el('option', { value }, info.label)));
 
     const form = el('form', { class: 'event-create' },
         el('input', { name: 'title', type: 'text', placeholder: 'Название мероприятия', required: true }),
         el('div', { class: 'event-create-row' },
             typeSelect,
             el('input', { name: 'date', type: 'date' })),
-        el('button', { type: 'submit', class: 'primary-btn' }, '＋ Создать по шаблону'));
+        el('button', { type: 'submit', class: 'primary-btn' }, ico('plus'), 'Создать по шаблону'));
     form.addEventListener('submit', (e) => {
         e.preventDefault();
         createEvent(form.elements.title.value.trim(), form.elements.type.value, form.elements.date.value);
@@ -1406,7 +1450,7 @@ function renderEventsList() {
         : el('div', {}, ...events.map(ev => {
             const info = eventTypeInfo(ev.type);
             return el('button', { class: 'event-card', dataset: { action: 'open-event', id: ev.id } },
-                el('span', { class: 'event-icon' }, info.icon),
+                el('span', { class: 'event-icon' }, ico(info.icon)),
                 el('span', { class: 'event-card-info' },
                     el('strong', {}, ev.title),
                     el('span', {}, `${formatEventDate(ev.date)} · ${info.label} · блоков: ${(ev.blocks || []).length}`)));
@@ -1464,16 +1508,16 @@ function renderEventDetail() {
     const offlineStatus = el('p', { class: 'offline-status' }, '…');
 
     const header = el('div', { class: 'event-header' },
-        el('button', { class: 'link-btn', dataset: { action: 'back' } }, '← Все мероприятия'),
+        el('button', { class: 'link-btn', dataset: { action: 'back' } }, ico('arrowLeft'), 'Все мероприятия'),
         el('input', { class: 'event-title-input', value: ev.title, dataset: { field: 'title' } }),
         el('div', { class: 'event-meta' },
-            el('span', {}, `${info.icon} ${info.label}`),
+            el('span', { class: 'event-type' }, ico(info.icon), info.label),
             el('input', { type: 'date', value: ev.date || '', dataset: { field: 'date' } })),
         el('div', { class: 'event-actions' },
-            el('button', { class: 'primary-btn', dataset: { action: 'show' } }, '🎬 Режим ведущего'),
-            el('button', { class: 'ghost-btn', dataset: { action: 'duplicate' }, title: 'Копия сценария с треками' }, '📋 Копия'),
-            el('button', { class: 'ghost-btn', dataset: { action: 'delete-event' }, 'aria-label': 'Удалить мероприятие' }, '🗑')),
-        el('button', { class: 'ghost-btn', dataset: { action: 'download' } }, '⬇ Скачать для офлайна'),
+            el('button', { class: 'primary-btn', dataset: { action: 'show' } }, ico('stage'), 'Режим ведущего'),
+            el('button', { class: 'ghost-btn', dataset: { action: 'duplicate' }, title: 'Копия сценария с треками' }, ico('copy'), 'Копия'),
+            el('button', { class: 'ghost-btn icon-only', dataset: { action: 'delete-event' }, 'aria-label': 'Удалить мероприятие' }, ico('trash'))),
+        el('button', { class: 'ghost-btn', dataset: { action: 'download' } }, ico('download'), 'Скачать для офлайна'),
         offlineStatus,
         eventsOffline ? el('p', { class: 'offline-note' }, 'Нет сети — открыта скачанная копия, изменения не сохранятся') : null);
     renderOfflineStatus(ev, offlineStatus);
@@ -1484,9 +1528,9 @@ function renderEventDetail() {
             ? el('p', { class: 'block-empty' }, 'Без музыки — тишина')
             : el('ol', { class: 'block-tracks' }, ...block.tracks.map((track, t) =>
                 el('li', {},
-                    el('button', { class: 'mini-btn', dataset: { action: 'play-track', block: i, track: t }, 'aria-label': 'Играть' }, '▶'),
-                    el('span', { class: 'block-track-name' }, track.source === 'file' ? `📁 ${track.name}` : track.name),
-                    el('button', { class: 'mini-btn', dataset: { action: 'remove-track', block: i, track: t }, 'aria-label': 'Убрать' }, '✕'))));
+                    el('button', { class: 'mini-btn', dataset: { action: 'play-track', block: i, track: t }, 'aria-label': 'Играть' }, ico('play')),
+                    el('span', { class: 'block-track-name' }, track.source === 'file' ? ico('folder') : null, track.name),
+                    el('button', { class: 'mini-btn', dataset: { action: 'remove-track', block: i, track: t }, 'aria-label': 'Убрать' }, ico('close')))));
 
         return el('div', { class: isPlaying ? 'block-card playing' : 'block-card' },
             el('div', { class: 'block-row' },
@@ -1495,26 +1539,26 @@ function renderEventDetail() {
                 el('button', { class: 'play-btn', innerHTML: ICONS.play, dataset: { action: 'play-block', block: i }, 'aria-label': 'Запустить блок' })),
             el('div', { class: 'block-row block-tools' },
                 el('select', { dataset: { field: 'loop', block: i } },
-                    el('option', { value: 'loop', selected: block.loop }, '🔁 Фон по кругу'),
-                    el('option', { value: 'once', selected: !block.loop }, '🎺 Сигнал, один раз')),
-                el('button', { class: 'mini-btn', dataset: { action: 'move-up', block: i }, disabled: i === 0, 'aria-label': 'Выше' }, '↑'),
-                el('button', { class: 'mini-btn', dataset: { action: 'move-down', block: i }, disabled: i === ev.blocks.length - 1, 'aria-label': 'Ниже' }, '↓'),
-                el('button', { class: 'mini-btn', dataset: { action: 'remove-block', block: i }, 'aria-label': 'Удалить блок' }, '🗑')),
+                    el('option', { value: 'loop', selected: block.loop }, 'Фон по кругу'),
+                    el('option', { value: 'once', selected: !block.loop }, 'Сигнал, один раз')),
+                el('button', { class: 'mini-btn', dataset: { action: 'move-up', block: i }, disabled: i === 0, 'aria-label': 'Выше' }, ico('arrowUp')),
+                el('button', { class: 'mini-btn', dataset: { action: 'move-down', block: i }, disabled: i === ev.blocks.length - 1, 'aria-label': 'Ниже' }, ico('arrowDown')),
+                el('button', { class: 'mini-btn', dataset: { action: 'remove-block', block: i }, 'aria-label': 'Удалить блок' }, ico('trash'))),
             el('div', { class: 'block-row block-tools' },
                 el('select', { dataset: { field: 'game', block: i } },
                     ...Object.entries(GAMES).map(([value, g]) =>
-                        el('option', { value, selected: (block.game || '') === value }, `${g.icon} ${g.label}`)))),
+                        el('option', { value, selected: (block.game || '') === value }, g.label)))),
             block.game ? el('p', { class: 'block-game-hint' }, GAMES[block.game].hint) : null,
             block.game === 'bingo' ? el('div', { class: 'block-row' },
-                el('button', { class: 'ghost-btn', dataset: { action: 'bingo-print', block: i } }, '🖨 Карточки'),
-                el('button', { class: 'ghost-btn', dataset: { action: 'bingo-qr', block: i } }, '📱 На телефоны')) : null,
+                el('button', { class: 'ghost-btn', dataset: { action: 'bingo-print', block: i } }, ico('printer'), 'Карточки'),
+                el('button', { class: 'ghost-btn', dataset: { action: 'bingo-qr', block: i } }, ico('phone'), 'На телефоны')) : null,
             tracks,
-            el('button', { class: 'link-btn', dataset: { action: 'pick', block: i } }, '＋ Добавить трек'));
+            el('button', { class: 'link-btn', dataset: { action: 'pick', block: i } }, ico('plus'), 'Добавить трек'));
     });
 
     renderRequestsPanel();
     eventsView.replaceChildren(header, requestsPanel, ...blocks,
-        el('button', { class: 'ghost-btn add-block-btn', dataset: { action: 'add-block' } }, '＋ Добавить блок'));
+        el('button', { class: 'ghost-btn add-block-btn', dataset: { action: 'add-block' } }, ico('plus'), 'Добавить блок'));
 }
 
 eventsView.addEventListener('click', (e) => {
@@ -1547,7 +1591,7 @@ eventsView.addEventListener('click', (e) => {
             break;
         case 'bingo-qr':
             publishBingo(currentEvent, block).then(ok => {
-                if (ok) openQrFullscreen(bingoUrl(currentEvent.id), 'Карточка бинго 🎱');
+                if (ok) openQrFullscreen(bingoUrl(currentEvent.id), 'Карточка бинго');
             });
             break;
         case 'delete-event':
@@ -1668,7 +1712,7 @@ function addTrackToPickTarget(track, btn) {
         ...(track.source === 'file' ? { source: 'file', fileKey: track.fileKey } : {})
     });
     saveEvent();
-    btn.textContent = '✓';
+    btn.innerHTML = ICONS.check;
     btn.disabled = true;
     renderPickBanner('search');
 }
@@ -1837,13 +1881,14 @@ function renderShowBlocks() {
                 el('span', { class: 'show-block-time' }, block.time || '—'),
                 el('span', { class: 'show-block-title' }, block.title),
                 el('span', { class: 'show-block-kind' },
-                    block.game ? GAMES[block.game].icon : block.tracks.length === 0 ? '🤫' : (block.loop ? '🔁' : '🎺'))))));
+                    ico(block.game ? GAMES[block.game].icon : block.tracks.length === 0 ? 'silence' : (block.loop ? 'loop' : 'signal')))))));
     const currentEl = showBlocks.querySelector('.current');
     if (currentEl) currentEl.scrollIntoView({ block: 'nearest' });
 }
 
 function updateShowPlayPause() {
-    showPlayPause.textContent = playerIsPlaying() ? '⏸ Пауза' : '▶ Играть';
+    const playing = playerIsPlaying();
+    setIconLabel(showPlayPause, playing ? 'pause' : 'play', playing ? 'Пауза' : 'Играть');
 }
 
 showBlocks.addEventListener('click', (e) => {
@@ -1975,7 +2020,7 @@ function closeAccountSheet() {
 
 function renderAccountSheet(user, statusText = '') {
     const status = el('p', { class: 'account-status', id: 'account-status' }, statusText);
-    const close = el('button', { class: 'sheet-close', 'aria-label': 'Закрыть', dataset: { action: 'close' } }, '✕');
+    const close = el('button', { class: 'sheet-close', 'aria-label': 'Закрыть', dataset: { action: 'close' } }, ico('close'));
     let body;
 
     if (isSignedIn(user)) {
@@ -2375,9 +2420,9 @@ function requestsListNode() {
             return el('li', {},
                 el('span', { class: 'request-info' },
                     el('strong', {}, first.name, items.length > 1 ? el('span', { class: 'request-count' }, ` ×${items.length}`) : null),
-                    el('span', {}, [first.videoId ? (first.artist_name || 'YouTube') : '✍️ без поиска', names && `от: ${names}`].filter(Boolean).join(' · '))),
-                el('button', { class: 'mini-btn accept', dataset: { requestAction: 'accept', group: i }, 'aria-label': 'Принять' }, '✓'),
-                el('button', { class: 'mini-btn', dataset: { requestAction: 'reject', group: i }, 'aria-label': 'Отклонить' }, '✕'));
+                    el('span', {}, [first.videoId ? (first.artist_name || 'YouTube') : 'название без поиска', names && `от: ${names}`].filter(Boolean).join(' · '))),
+                el('button', { class: 'mini-btn accept', dataset: { requestAction: 'accept', group: i }, 'aria-label': 'Принять' }, ico('check')),
+                el('button', { class: 'mini-btn', dataset: { requestAction: 'reject', group: i }, 'aria-label': 'Отклонить' }, ico('close')));
         })));
 }
 
@@ -2389,7 +2434,7 @@ function renderRequestsPanel() {
 
     const children = [
         el('div', { class: 'requests-head' },
-            el('h3', {}, '📱 Заказы гостей'),
+            el('h3', {}, ico('phone'), 'Заказы гостей'),
             el('label', { class: 'switch' },
                 el('input', { type: 'checkbox', checked: open, disabled: eventsOffline, dataset: { requestsField: 'open' } }),
                 el('span', {}, open ? 'Принимаем' : 'Закрыто')))
@@ -2431,7 +2476,7 @@ async function handleRequestsClick(e) {
         } else {
             try {
                 await navigator.clipboard.writeText(url);
-                btn.textContent = '✓ Ссылка скопирована';
+                setIconLabel(btn, 'check', 'Ссылка скопирована');
             } catch {
                 prompt('Ссылка для гостей:', url);
             }
@@ -2463,7 +2508,7 @@ function updateShowRequestsBadge() {
     const count = groupedNewRequests().length;
     const open = !!(publicEvent && publicEvent.requestsOpen);
     showRequestsBtn.classList.toggle('hidden', !open && count === 0);
-    showRequestsBtn.textContent = count ? `📱 ${count}` : '📱';
+    showRequestsBtn.replaceChildren(ico('phone'), ...(count ? [document.createTextNode(String(count))] : []));
     showRequestsBtn.classList.toggle('has-new', count > 0);
 }
 
@@ -2472,8 +2517,8 @@ function renderShowRequests() {
     showRequestsPanel.replaceChildren(
         el('div', { class: 'show-requests-head' },
             el('strong', {}, 'Заказы гостей'),
-            el('button', { class: 'ghost-btn', dataset: { requestAction: 'qr-full' } }, 'QR для гостей'),
-            el('button', { class: 'sheet-close', dataset: { requestAction: 'close-panel' }, 'aria-label': 'Закрыть' }, '✕')),
+            el('button', { class: 'ghost-btn', dataset: { requestAction: 'qr-full' } }, ico('qr'), 'QR для гостей'),
+            el('button', { class: 'sheet-close', dataset: { requestAction: 'close-panel' }, 'aria-label': 'Закрыть' }, ico('close'))),
         requestsListNode());
 }
 
@@ -2490,7 +2535,7 @@ showRequestsPanel.addEventListener('click', (e) => {
 });
 showRequestsPanel.addEventListener('change', handleRequestsChange);
 
-function openQrFullscreen(url = currentEvent && guestUrl(currentEvent.id), heading = 'Закажите песню 🎵') {
+function openQrFullscreen(url = currentEvent && guestUrl(currentEvent.id), heading = 'Закажите песню') {
     if (!currentEvent) return;
     qrFullscreen.replaceChildren(
         el('p', { class: 'qr-title' }, heading),
@@ -2546,7 +2591,7 @@ async function startGuestPage(eventId) {
         status);
 
     guestView.replaceChildren(
-        el('p', { class: 'guest-label' }, '🎵 Заказ песни'),
+        el('p', { class: 'guest-label' }, ico('note'), 'Заказ песни'),
         title, closedNote, form,
         el('h2', {}, 'Ваши заказы'), mineList);
 
@@ -2556,10 +2601,10 @@ async function startGuestPage(eventId) {
     };
 
     function renderMine() {
-        const labels = { new: '⏳ ждёт', accepted: '✓ принят', rejected: '✕ не в этот раз' };
+        const labels = { new: ['clock', 'ждёт'], accepted: ['check', 'принят'], rejected: ['close', 'не в этот раз'] };
         mineList.replaceChildren(...(mine.length
             ? mine.sort((a, b) => b.createdAt - a.createdAt).map(r =>
-                el('li', { class: `guest-req ${r.status}` }, el('span', {}, r.name), el('span', { class: 'guest-req-status' }, labels[r.status] || r.status)))
+                el('li', { class: `guest-req ${r.status}` }, el('span', {}, r.name), el('span', { class: 'guest-req-status' }, ...(labels[r.status] ? [ico(labels[r.status][0]), labels[r.status][1]] : [r.status]))))
             : [el('li', { class: 'requests-empty' }, 'Пока нет — закажите что-нибудь!')]));
     }
 
@@ -2613,7 +2658,7 @@ async function startGuestPage(eventId) {
         if (!btn) return;
         const track = (results._tracks || []).find(t => t.id === btn.dataset.videoId);
         btn.disabled = true;
-        if (await submit({ name: track.name, artist_name: track.artist_name, videoId: track.id })) btn.textContent = '✓';
+        if (await submit({ name: track.name, artist_name: track.artist_name, videoId: track.id })) btn.innerHTML = ICONS.check;
         else btn.disabled = false;
     });
 
@@ -2651,10 +2696,10 @@ if (GUEST_EVENT_ID) startGuestPage(GUEST_EVENT_ID);
 // ведущего, а игра перехватывает события плеера: ставит паузы, режет треки на
 // отрывки и решает, что играть дальше.
 const GAMES = {
-    '': { icon: '🎵', label: 'Без игры', hint: '' },
-    freeze: { icon: '🧊', label: 'Игра «Замри»', hint: 'Музыка остановится в случайный момент — кто пошевелился, выбывает. Продолжить — кнопкой «Музыка!».' },
-    quiz: { icon: '❓', label: 'Угадай мелодию', hint: 'Треки в случайном порядке по 15 секунд, название и видео скрыты до ответа. На пульте — очки команд.' },
-    bingo: { icon: '🎱', label: 'Музыкальное бинго', hint: 'Песни в случайном порядке по 30 секунд. Гости отмечают их на карточках — на телефоне по QR или распечатанных. Нужно от 9 песен.' }
+    '': { icon: 'note', label: 'Без игры', hint: '' },
+    freeze: { icon: 'freeze', label: 'Игра «Замри»', hint: 'Музыка остановится в случайный момент — кто пошевелился, выбывает. Продолжить — кнопкой «Музыка!».' },
+    quiz: { icon: 'quiz', label: 'Угадай мелодию', hint: 'Треки в случайном порядке по 15 секунд, название и видео скрыты до ответа. На пульте — очки команд.' },
+    bingo: { icon: 'bingo', label: 'Музыкальное бинго', hint: 'Песни в случайном порядке по 30 секунд. Гости отмечают их на карточках — на телефоне по QR или распечатанных. Нужно от 9 песен.' }
 };
 const FREEZE_MIN_SEC = 8;
 const FREEZE_MAX_SEC = 25;
@@ -2899,7 +2944,7 @@ function printBingoCards(block) {
     printArea.replaceChildren(...Array.from({ length: count }, (_, n) =>
         el('div', { class: 'bingo-print-card' },
             el('div', { class: 'bingo-print-head' },
-                el('strong', {}, `🎱 Музыкальное бинго · ${currentEvent.title}`),
+                el('strong', {}, `Музыкальное бинго · ${currentEvent.title}`),
                 el('span', {}, `№ ${n + 1}`)),
             el('div', { class: `bingo-grid size-${size}` },
                 ...makeBingoCard(titles, size).map(t => el('div', { class: 'bingo-cell' }, t))))));
@@ -2921,31 +2966,31 @@ function renderGame() {
 
     if (g.type === 'freeze') {
         showGame.replaceChildren(
-            el('p', { class: 'game-hint' }, `🧊 Замри: музыка встанет через ${FREEZE_MIN_SEC}–${FREEZE_MAX_SEC} секунд`),
-            el('button', { class: 'game-btn', dataset: { game: 'freeze-now' } }, '🧊 Замри сейчас'));
+            el('p', { class: 'game-hint' }, `«Замри»: музыка встанет через ${FREEZE_MIN_SEC}–${FREEZE_MAX_SEC} секунд`),
+            el('button', { class: 'game-btn', dataset: { game: 'freeze-now' } }, ico('freeze'), 'Замри сейчас'));
     } else if (g.type === 'quiz') {
         const track = activeQueue[activeQueueIndex];
         showGame.replaceChildren(
             el('div', { class: 'game-row' },
-                el('span', { class: 'game-hint' }, g.finished ? 'Раунд окончен' : `❓ Трек ${activeQueueIndex + 1} из ${total}` + (g.clipDone ? ' · отрывок закончился' : '')),
+                el('span', { class: 'game-hint' }, g.finished ? 'Раунд окончен' : `Трек ${activeQueueIndex + 1} из ${total}` + (g.clipDone ? ' · отрывок закончился' : '')),
                 g.revealed && track ? el('strong', { class: 'quiz-answer' }, `${track.name}`) : null),
             el('div', { class: 'game-row' },
-                el('button', { class: 'game-btn', dataset: { game: 'quiz-more' }, disabled: g.finished }, '▶ Дольше'),
-                el('button', { class: 'game-btn', dataset: { game: 'quiz-reveal' }, disabled: g.revealed }, '👁 Ответ'),
-                el('button', { class: 'game-btn primary', dataset: { game: 'quiz-next' }, disabled: g.finished }, 'Следующий ⏭')),
+                el('button', { class: 'game-btn', dataset: { game: 'quiz-more' }, disabled: g.finished }, ico('play'), 'Дольше'),
+                el('button', { class: 'game-btn', dataset: { game: 'quiz-reveal' }, disabled: g.revealed }, ico('eye'), 'Ответ'),
+                el('button', { class: 'game-btn primary', dataset: { game: 'quiz-next' }, disabled: g.finished }, 'Следующий', ico('skip'))),
             el('div', { class: 'quiz-teams' },
                 ...g.teams.map((team, i) => el('div', { class: 'quiz-team' },
                     el('input', { value: team.name, dataset: { team: i }, 'aria-label': 'Название команды' }),
                     el('button', { class: 'game-btn small', dataset: { game: 'score-minus', team: i } }, '−'),
                     el('strong', { class: 'quiz-score' }, String(team.score)),
                     el('button', { class: 'game-btn small primary', dataset: { game: 'score-plus', team: i } }, '+1'))),
-                el('button', { class: 'game-btn small', dataset: { game: 'team-add' } }, '＋ Команда')));
+                el('button', { class: 'game-btn small', dataset: { game: 'team-add' } }, ico('plus'), 'Команда')));
     } else if (g.type === 'bingo') {
         showGame.replaceChildren(
             el('div', { class: 'game-row' },
-                el('span', { class: 'game-hint' }, g.finished ? '🎱 Все песни сыграны' : `🎱 Сыграно ${g.played.length} из ${total}`),
-                el('button', { class: 'game-btn', dataset: { game: 'bingo-qr' } }, '📱 QR карточек'),
-                el('button', { class: 'game-btn primary', dataset: { game: 'bingo-next' }, disabled: g.finished }, 'Дальше ⏭')),
+                el('span', { class: 'game-hint' }, g.finished ? 'Все песни сыграны' : `Сыграно ${g.played.length} из ${total}`),
+                el('button', { class: 'game-btn', dataset: { game: 'bingo-qr' } }, ico('qr'), 'QR карточек'),
+                el('button', { class: 'game-btn primary', dataset: { game: 'bingo-next' }, disabled: g.finished }, 'Дальше', ico('skip'))),
             el('ol', { class: 'bingo-played', reversed: true },
                 ...[...g.played].reverse().map(t => el('li', {}, cleanTitle(t.name)))));
     }
@@ -2976,7 +3021,7 @@ showGame.addEventListener('click', (e) => {
             saveTeams();
             renderGame();
             break;
-        case 'bingo-qr': openQrFullscreen(bingoUrl(g.eventId), 'Карточка бинго 🎱'); break;
+        case 'bingo-qr': openQrFullscreen(bingoUrl(g.eventId), 'Карточка бинго'); break;
         case 'bingo-next': bingoNext(); break;
     }
 });
@@ -3026,7 +3071,7 @@ async function startBingoPage(eventId) {
         const pub = snap.exists() ? snap.data() : null;
         if (!pub || !pub.bingo) {
             guestView.replaceChildren(
-                el('p', { class: 'guest-label' }, '🎱 Музыкальное бинго'),
+                el('p', { class: 'guest-label' }, ico('bingo'), 'Музыкальное бинго'),
                 el('p', { class: 'guest-closed' }, 'Бинго ещё не началось — откройте ссылку, когда ведущий объявит игру.'));
             return;
         }
@@ -3058,7 +3103,7 @@ function renderBingoCard(eventId, pub) {
         return lines.some(line => line.every(c => m.has(c)));
     };
 
-    const banner = el('p', { class: 'bingo-banner hidden' }, '🎉 БИНГО! Поднимите руку и покажите карточку ведущему');
+    const banner = el('p', { class: 'bingo-banner hidden' }, ico('star'), 'Бинго! Поднимите руку и покажите карточку ведущему');
     const grid = el('div', { class: `bingo-grid size-${size}` },
         ...state.cells.map((t, i) => el('button', { class: state.marked.includes(i) ? 'bingo-cell marked' : 'bingo-cell', dataset: { cell: i } }, t)));
     banner.classList.toggle('hidden', !hasLine());
@@ -3074,7 +3119,7 @@ function renderBingoCard(eventId, pub) {
     });
 
     guestView.replaceChildren(
-        el('p', { class: 'guest-label' }, '🎱 Музыкальное бинго'),
+        el('p', { class: 'guest-label' }, ico('bingo'), 'Музыкальное бинго'),
         el('h1', {}, pub.title),
         el('p', { class: 'requests-hint' }, 'Отмечайте песни, которые прозвучали. Собрали линию — по горизонтали, вертикали или диагонали — кричите «Бинго!».'),
         grid, banner);

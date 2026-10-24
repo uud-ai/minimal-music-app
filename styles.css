@@ -1878,3 +1878,123 @@ body.show-open {
 #show-requests-panel {
     position: fixed;
 }
+
+/* --- 16. ИКОНКИ В КНОПКАХ И ПОДПИСЯХ --- */
+/* Линейные SVG-иконки (main.js → ICONS / ico()) вместо эмодзи: размер — от шрифта
+   кнопки, цвет — currentColor, поэтому они сами подстраиваются под тему */
+.ic {
+    flex-shrink: 0;
+    width: 1.15em;
+    height: 1.15em;
+}
+
+.primary-btn, .ghost-btn, .link-btn, .game-btn, .show-controls button, .freeze-btn,
+#show-requests, .upload-btn, .bingo-banner {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.45em;
+}
+
+.primary-btn svg, .ghost-btn svg, .link-btn svg {
+    flex-shrink: 0;
+    width: 1.15em;
+    height: 1.15em;
+}
+
+.upload-btn {
+    display: flex;
+}
+
+.ghost-btn.icon-only {
+    padding: 10px 12px;
+}
+
+.guest-label, .requests-head h3, .event-type, .guest-req-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4em;
+}
+
+/* Значок в длинном названии трека — в строке, чтобы троеточие не ломалось */
+.block-track-name .ic {
+    width: 1.05em;
+    height: 1.05em;
+    margin-right: 0.35em;
+    vertical-align: -0.17em;
+    color: var(--muted);
+}
+
+.mini-btn, .add-btn, .sheet-close, #show-close {
+    display: inline-grid;
+    place-items: center;
+}
+
+.mini-btn svg {
+    width: 17px;
+    height: 17px;
+}
+
+.mini-btn.accept svg {
+    width: 19px;
+    height: 19px;
+}
+
+.add-btn svg {
+    width: 18px;
+    height: 18px;
+}
+
+.sheet-close svg {
+    width: 22px;
+    height: 22px;
+}
+
+#show-close svg {
+    width: 26px;
+    height: 26px;
+}
+
+/* Тип мероприятия в списке — значок в латунном кружке */
+.event-icon {
+    flex-shrink: 0;
+    display: grid;
+    place-items: center;
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    background: var(--tint);
+    color: var(--accent);
+    font-size: 1rem;
+}
+
+.event-icon .ic {
+    width: 22px;
+    height: 22px;
+}
+
+.show-block-kind {
+    display: grid;
+    place-items: center;
+    color: var(--stage-accent);
+}
+
+.show-block-kind .ic {
+    width: 20px;
+    height: 20px;
+}
+
+.freeze-icon {
+    width: 6rem;
+    height: 6rem;
+    stroke-width: 1.2;
+}
+
+.freeze-emoji {
+    line-height: 0;
+}
+
+.bingo-banner .ic {
+    width: 1.3em;
+    height: 1.3em;
+}

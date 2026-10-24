@@ -38,7 +38,8 @@
             <div id="pick-banner" class="hidden"></div>
             <div id="upload-bar" class="hidden">
                 <label class="upload-btn">
-                    ＋ Загрузить свои треки
+                    <svg class="ic" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+                    Загрузить свои треки
                     <input type="file" id="upload-input" accept="audio/*,.mp3,.m4a,.aac,.wav,.ogg,.flac" multiple hidden>
                 </label>
                 <span id="upload-status">MP3 и другие аудиофайлы, до 25 МБ каждый</span>
@@ -81,8 +82,8 @@
                     <strong id="show-event-title"></strong>
                     <span id="show-clock"></span>
                 </div>
-                <button id="show-requests" class="hidden" aria-label="Заказы гостей">📱</button>
-                <button id="show-close" aria-label="Закрыть режим ведущего">✕</button>
+                <button id="show-requests" class="hidden" aria-label="Заказы гостей"><svg class="ic" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="7" y="3" width="10" height="18" rx="2.5"/><path d="M11 18h2"/></svg></button>
+                <button id="show-close" aria-label="Закрыть режим ведущего"><svg class="ic" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/></svg></button>
             </div>
             <div id="show-video"><div id="yt-player"></div></div>
             <div class="show-now">
@@ -93,16 +94,16 @@
             <!-- Панель идущей игры: «Замри», «Угадай мелодию», бинго -->
             <div id="show-game"></div>
             <div class="show-controls">
-                <button id="show-stop">⏹ Стоп</button>
-                <button id="show-playpause">▶ Играть</button>
-                <button id="show-next">Следующий блок ⏭</button>
+                <button id="show-stop"><svg class="ic" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor"/></svg>Стоп</button>
+                <button id="show-playpause"><svg class="ic" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M8 5.5v13a.6.6 0 0 0 .9.5l10.2-6.5a.6.6 0 0 0 0-1L8.9 5a.6.6 0 0 0-.9.5z" fill="currentColor"/></svg>Играть</button>
+                <button id="show-next">Следующий блок<svg class="ic" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M6 5.5v13l9.5-6.5z" fill="currentColor"/><path d="M18.5 5.5v13"/></svg></button>
             </div>
             <ol id="show-blocks"></ol>
             <div id="show-requests-panel" class="hidden"></div>
             <div id="freeze-overlay" class="hidden">
                 <p class="freeze-title">ЗАМРИ!</p>
-                <p class="freeze-emoji">🧊</p>
-                <button class="freeze-btn" data-game="resume">▶ Музыка!</button>
+                <p class="freeze-emoji"><svg class="freeze-icon" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v18M4.2 7.5l15.6 9M4.2 16.5l15.6-9M9.5 4.5 12 7l2.5-2.5M9.5 19.5 12 17l2.5 2.5"/></svg></p>
+                <button class="freeze-btn" data-game="resume"><svg class="ic" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M8 5.5v13a.6.6 0 0 0 .9.5l10.2-6.5a.6.6 0 0 0 0-1L8.9 5a.6.6 0 0 0-.9.5z" fill="currentColor"/></svg>Музыка!</button>
             </div>
         </div>
 
