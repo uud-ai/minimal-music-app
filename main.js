@@ -464,7 +464,7 @@ function showView(view) {
 navSearch.addEventListener('click', () => {
     showView('search');
     if (lastSearchTracks) {
-        renderTracks(lastSearchTracks, false);
+        renderSearchResults();
         updateLoadMoreButton();
     } else {
         trackList.innerHTML = '<p class="status">Введите название песни для поиска</p>';
@@ -497,36 +497,97 @@ searchInput.addEventListener('keypress', (e) => {
 // искал другое) не должен перезаписать новые результаты или подмешаться к ним
 let searchSeq = 0;
 
+// Канал YouTube, чьи треки сейчас показаны ({ id, title }), или null — обычный поиск
+let lastSearchChannel = null;
+// Результаты поиска до перехода на канал — «← Назад» возвращает их без нового запроса
+let searchBack = null; // { query, tracks, nextPageToken }
+
 async function searchMusic(queryText) {
+    lastSearchChannel = null;
+    searchBack = null;
+    await runSearch(queryText, null, 'Ищем музыку на YouTube...');
+}
+
+// Все треки канала (автора), на имя которого нажали под названием песни
+async function openChannel(channelId, channelTitle) {
+    if (!channelId) return;
+    if (lastSearchChannel && lastSearchChannel.id === channelId && navSearch.classList.contains('active')) return;
+    // Запоминаем обычный поиск, чтобы к нему можно было вернуться; если уже смотрим
+    // другой канал — «Назад» по-прежнему ведёт к исходному поиску
+    if (!lastSearchChannel && lastSearchTracks) {
+        searchBack = { query: lastSearchQuery, tracks: lastSearchTracks, nextPageToken };
+    }
+    lastSearchChannel = { id: channelId, title: channelTitle || 'Канал' };
+    window.scrollTo(0, 0);
+    await runSearch('', channelId, `Загружаем треки «${lastSearchChannel.title}»...`);
+}
+
+// Возврат с канала к результатам поиска, из которого на него перешли
+function closeChannel() {
+    lastSearchChannel = null;
+    const back = searchBack;
+    searchBack = null;
+    searchSeq++; // незаконченная загрузка канала не должна прийти поверх
+    if (back) {
+        lastSearchQuery = back.query;
+        lastSearchTracks = back.tracks;
+        nextPageToken = back.nextPageToken;
+        searchInput.value = back.query;
+        renderSearchResults();
+    } else {
+        lastSearchQuery = '';
+        lastSearchTracks = null;
+        nextPageToken = null;
+        trackList.innerHTML = '<p class="status">Введите название песни для поиска</p>';
+    }
+    updateLoadMoreButton();
+}
+
+async function runSearch(queryText, channelId, loadingText) {
     // Строка поиска видна и в «Моей музыке» — результаты всегда показываем на вкладке
     // «Поиск», иначе ♡ у найденных треков сработал бы как удаление из библиотеки
     if (!navSearch.classList.contains('active')) showView('search');
     const seq = ++searchSeq;
-    trackList.innerHTML = '<p class="status">Ищем музыку на YouTube...</p>';
+    trackList.replaceChildren(...channelHeader(), el('p', { class: 'status' }, loadingText));
     loadMoreBtn.classList.add('hidden');
     lastSearchQuery = queryText;
     nextPageToken = null;
 
-    const page = await fetchSearchPage(queryText, null);
+    const page = await fetchSearchPage({ query: queryText, channelId }, null);
     if (seq !== searchSeq) return;
     if (page === null) return; // ошибка уже отображена внутри fetchSearchPage
 
     nextPageToken = page.nextPageToken;
     lastSearchTracks = page.tracks;
     if (!navSearch.classList.contains('active')) return; // ушли на другую вкладку
-    renderTracks(page.tracks, false);
+    renderSearchResults();
     updateLoadMoreButton();
+}
+
+// Результаты поиска, а над треками канала — шапка с его названием и «← Назад»
+function renderSearchResults() {
+    renderTracks(lastSearchTracks, false);
+    if (lastSearchChannel) trackList.prepend(...channelHeader());
+}
+
+function channelHeader() {
+    if (!lastSearchChannel) return [];
+    return [el('div', { class: 'channel-header' },
+        el('button', { class: 'link-btn', dataset: { action: 'channel-back' } },
+            searchBack && searchBack.query ? `← К поиску «${searchBack.query}»` : '← Назад'),
+        el('strong', {}, `Треки канала: ${lastSearchChannel.title}`))];
 }
 
 // Догружает следующую страницу результатов поиска и добавляет её к текущему списку
 async function loadMoreTracks() {
-    if (!nextPageToken || !lastSearchQuery) return;
+    if (!nextPageToken || (!lastSearchQuery && !lastSearchChannel)) return;
 
     const seq = searchSeq;
     loadMoreBtn.disabled = true;
     loadMoreBtn.textContent = 'Загрузка...';
 
-    const page = await fetchSearchPage(lastSearchQuery, nextPageToken);
+    const page = await fetchSearchPage(
+        { query: lastSearchQuery, channelId: lastSearchChannel && lastSearchChannel.id }, nextPageToken);
 
     loadMoreBtn.disabled = false;
     loadMoreBtn.textContent = 'Ещё';
@@ -539,12 +600,16 @@ async function loadMoreTracks() {
     lastSearchTracks = [...(lastSearchTracks || []), ...moreTracks];
     // Если сейчас играет поиск — догруженные треки тоже попадают в очередь нон-стоп
     if (activeQueue && activeQueue === previousTracks) activeQueue = lastSearchTracks;
-    renderTracks(lastSearchTracks, false);
+    renderSearchResults();
     updateLoadMoreButton();
 }
 
-function youtubeSearchUrl(queryText, pageToken = null) {
-    let url = `https://www.googleapis.com/youtube/v3/search?part=snippet&maxResults=10&q=${encodeURIComponent(queryText)}&type=video&videoCategoryId=10&videoEmbeddable=true&videoSyndicated=true&key=${YOUTUBE_API_KEY}`;
+// channelId — только видео этого канала, популярные сверху. Категорию «Музыка» для
+// канала не требуем: каверы и нейросетевые песни авторы часто ставят в «Развлечения»
+function youtubeSearchUrl(queryText, pageToken = null, channelId = null) {
+    let url = `https://www.googleapis.com/youtube/v3/search?part=snippet&maxResults=10&type=video&videoEmbeddable=true&videoSyndicated=true&key=${YOUTUBE_API_KEY}`;
+    if (queryText) url += `&q=${encodeURIComponent(queryText)}`;
+    url += channelId ? `&channelId=${encodeURIComponent(channelId)}&order=viewCount` : '&videoCategoryId=10';
     if (pageToken) url += `&pageToken=${pageToken}`;
     return url;
 }
@@ -565,18 +630,20 @@ function youtubeItemsToTracks(items = []) {
         id: item.id.videoId,
         name: decodeEntities(item.snippet.title),
         artist_name: decodeEntities(item.snippet.channelTitle),
+        channelId: item.snippet.channelId || '',
         audio: item.id.videoId // В качестве "аудио" передаем ID видео
     }));
 }
 
 // Запрашивает одну страницу результатов у YouTube Data API:
 // { tracks, nextPageToken } или null (ошибку показывает сама, если запрос не устарел)
-async function fetchSearchPage(queryText, pageToken) {
-    const url = youtubeSearchUrl(queryText, pageToken);
+async function fetchSearchPage({ query, channelId = null }, pageToken) {
+    const url = youtubeSearchUrl(query, pageToken, channelId);
     const seq = searchSeq;
     const showError = (text) => {
         if (seq === searchSeq && navSearch.classList.contains('active')) {
-            trackList.innerHTML = `<p class="status">${text}</p>`;
+            // Шапку канала оставляем, чтобы из ошибки можно было вернуться «← Назад»
+            trackList.replaceChildren(...channelHeader(), el('p', { class: 'status' }, text));
         }
     };
 
@@ -625,8 +692,15 @@ function renderTracks(tracks, isLibrary) {
         info.className = 'track-info';
         const nameEl = document.createElement('strong');
         nameEl.textContent = track.name;
-        const artistEl = document.createElement('span');
+        // Канал YouTube кликабелен — открывает остальные треки этого автора
+        const isChannelLink = track.channelId && !(lastSearchChannel && lastSearchChannel.id === track.channelId && !isLibrary);
+        const artistEl = document.createElement(isChannelLink ? 'button' : 'span');
         artistEl.textContent = track.artist_name;
+        if (isChannelLink) {
+            artistEl.className = 'artist-link';
+            artistEl.dataset.index = String(index);
+            artistEl.setAttribute('aria-label', `Все треки: ${track.artist_name}`);
+        }
         info.append(nameEl, artistEl);
 
         const actions = document.createElement('div');
@@ -663,7 +737,8 @@ function renderTracks(tracks, isLibrary) {
             artist: track.artist_name,
             docid: track.docId || '',
             source: track.source || '',
-            key: track.fileKey || ''
+            key: track.fileKey || '',
+            channel: track.channelId || ''
         });
 
         actions.append(playBtn, likeBtn);
@@ -683,8 +758,13 @@ function markTrackCardUnavailable(index) {
 // --- 8. ДЕЛЕГИРОВАНИЕ СОБЫТИЙ ---
 trackList.addEventListener('click', (e) => {
     const target = e.target;
-    
-    if (target.classList.contains('play-btn')) {
+
+    if (target.closest('[data-action="channel-back"]')) {
+        closeChannel();
+    } else if (target.classList.contains('artist-link')) {
+        const track = currentTracks[Number(target.dataset.index)];
+        if (track) openChannel(track.channelId, track.artist_name);
+    } else if (target.classList.contains('play-btn')) {
         startList(Number(target.dataset.index), currentTracks, currentIsLibrary);
     } else if (target.classList.contains('add-btn')) {
         addTrackToPickTarget(currentTracks[Number(target.dataset.index)], target);
@@ -723,6 +803,7 @@ async function handleLike(btn) {
             name: track.name,
             artist: track.artist,
             audioUrl: track.url, // ID видео
+            channelId: track.channel || '', // чтобы и в «Моей музыке» автор был кликабельным
             timestamp: Date.now()
         });
 
@@ -754,6 +835,7 @@ async function loadLibrary() {
                 name: data.name,
                 artist_name: data.artist,
                 audio: data.audioUrl,
+                channelId: data.channelId || '',
                 timestamp: data.timestamp || 0
             });
         });
@@ -966,7 +1048,8 @@ function updateNowPlayingLikeButton(track, isLibrary) {
         artist: track.artist_name,
         docid: track.docId || '',
         source: track.source || '',
-        key: track.fileKey || ''
+        key: track.fileKey || '',
+        channel: track.channelId || ''
     });
 }
 
@@ -1765,7 +1848,7 @@ function afterAuthChange(user, force = false) {
     stopRequests();
     pickTarget = null;
     renderPickBanner();
-    if (navSearch.classList.contains('active') && lastSearchTracks) renderTracks(lastSearchTracks, false);
+    if (navSearch.classList.contains('active') && lastSearchTracks) renderSearchResults();
     if (navLibrary.classList.contains('active')) loadLibrary();
     if (navEvents.classList.contains('active')) loadEvents();
 }

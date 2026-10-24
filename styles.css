@@ -117,6 +117,48 @@ header h1 {
     text-overflow: ellipsis;
 }
 
+/* Канал под названием песни — ссылка на остальные его треки */
+.track-info .artist-link {
+    align-self: flex-start;
+    max-width: 100%;
+    background: none;
+    border: none;
+    padding: 2px 0;
+    font-family: inherit;
+    font-size: 0.9rem;
+    color: var(--gray);
+    text-align: left;
+    text-decoration: underline dotted;
+    text-underline-offset: 3px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    cursor: pointer;
+}
+
+.track-info .artist-link:hover, .track-info .artist-link:active {
+    color: var(--gold);
+}
+
+/* Шапка над треками канала: «← Назад» и название канала */
+.channel-header {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+    padding: 12px 20px;
+    border-bottom: 1px solid var(--gold);
+}
+
+.channel-header strong {
+    max-width: 100%;
+    font-weight: 500;
+    color: var(--dark);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
 /* --- 4. КНОПКИ ДЕЙСТВИЙ --- */
 .actions {
     display: flex;
