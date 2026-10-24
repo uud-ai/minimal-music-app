@@ -88,7 +88,14 @@ function loadFirebase() {
                 EmailAuthProvider, linkWithCredential, signInWithEmailAndPassword, sendPasswordResetEmail,
                 authReady,
                 getCurrentUser: () => auth.currentUser || currentUser,
-                onAuthChange: (fn) => authListeners.push(fn)
+                // Возвращает функцию отписки
+                onAuthChange: (fn) => {
+                    authListeners.push(fn);
+                    return () => {
+                        const i = authListeners.indexOf(fn);
+                        if (i >= 0) authListeners.splice(i, 1);
+                    };
+                }
             };
         })();
     }
@@ -103,7 +110,7 @@ const BINGO_EVENT_ID = new URLSearchParams(location.search).get('bingo');
 
 // Константы приложения
 const YOUTUBE_API_KEY = "AIzaSyBgrlvnKuTsj4HSitEUT3Ae4yJLbNozfd8";
-// Свои аудиофайлы лежат в Cloudflare R2, загрузка и отдача — через воркер (worker/index.js)
+// Свои аудиофайлы лежат в Cloudflare Workers KV, загрузка и отдача — через воркер (worker/index.js)
 const FILES_API = "https://minimal-music-files.uudnik.workers.dev";
 
 const searchInput = document.getElementById('search-input');
@@ -213,7 +220,7 @@ filePlayer.addEventListener('error', () => {
 
 // --- 3.2 ОБЩИЙ ИНТЕРФЕЙС ПЛЕЕРА ---
 // Трек играет либо в YouTube-плеере (audio — ID видео), либо в <audio>
-// (source: 'file', audio — ссылка на файл в R2). Всё остальное приложение
+// (source: 'file', audio — ссылка на файл в хранилище воркера). Всё остальное приложение
 // управляет воспроизведением только через эти функции.
 function isFileSource() {
     return currentSource === 'file';
@@ -302,10 +309,7 @@ function onPlaybackError() {
     const track = activeQueue && activeQueue[activeQueueIndex];
     if (track) {
         track.unavailable = true;
-        if (activeQueue === currentTracks) {
-            const card = trackList.querySelectorAll('.track-card')[activeQueueIndex];
-            if (card) card.classList.add('unavailable');
-        }
+        if (activeQueue === currentTracks) markTrackCardUnavailable(activeQueueIndex);
     }
     if (!playNext()) {
         stopProgressLoop();
@@ -352,7 +356,12 @@ function setupMediaSession() {
     safe('seekto', (details) => {
         if (details.seekTime != null) playerSeek(details.seekTime);
     });
-    safe('nexttrack', () => playNext());
+    // В «Угадай мелодию» и бинго «следующий» с наушников — ход игры, а не просто трек
+    safe('nexttrack', () => {
+        if (activeGame && activeGame.type === 'quiz') quizNext();
+        else if (activeGame && activeGame.type === 'bingo') bingoNext();
+        else playNext();
+    });
     safe('previoustrack', playPrevious);
 }
 setupMediaSession();
@@ -413,10 +422,15 @@ npPlayPause.addEventListener('click', () => {
 npLike.addEventListener('click', async () => {
     if (npLike.textContent.trim() === '🗑️') {
         if (await handleDelete(npLike) === false) return; // отказались удалять файл
+        // Удалённый трек больше не играет по кругу в очереди «Моей музыки»
+        const playing = activeQueue && activeQueue[activeQueueIndex];
+        if (playing && currentPlayingIsLibrary) playing.unavailable = true;
         npLike.textContent = '♡';
         currentPlayingIsLibrary = false;
         // Удалённый свой файл повторно «лайкнуть» нельзя — прячем кнопку
         if (npLike.dataset.source === 'file') npLike.classList.add('hidden');
+        // Карточка удалённого трека не должна оставаться в открытой «Моей музыке»
+        if (navLibrary.classList.contains('active')) loadLibrary();
     } else {
         handleLike(npLike);
     }
@@ -479,17 +493,28 @@ searchInput.addEventListener('keypress', (e) => {
     }
 });
 
+// Номер последнего запроса к поиску: ответ устаревшего запроса (пользователь уже
+// искал другое) не должен перезаписать новые результаты или подмешаться к ним
+let searchSeq = 0;
+
 async function searchMusic(queryText) {
+    // Строка поиска видна и в «Моей музыке» — результаты всегда показываем на вкладке
+    // «Поиск», иначе ♡ у найденных треков сработал бы как удаление из библиотеки
+    if (!navSearch.classList.contains('active')) showView('search');
+    const seq = ++searchSeq;
     trackList.innerHTML = '<p class="status">Ищем музыку на YouTube...</p>';
     loadMoreBtn.classList.add('hidden');
     lastSearchQuery = queryText;
     nextPageToken = null;
 
-    const tracks = await fetchSearchPage(queryText, null);
-    if (tracks === null) return; // ошибка уже отображена внутри fetchSearchPage
+    const page = await fetchSearchPage(queryText, null);
+    if (seq !== searchSeq) return;
+    if (page === null) return; // ошибка уже отображена внутри fetchSearchPage
 
-    lastSearchTracks = tracks;
-    renderTracks(tracks, false);
+    nextPageToken = page.nextPageToken;
+    lastSearchTracks = page.tracks;
+    if (!navSearch.classList.contains('active')) return; // ушли на другую вкладку
+    renderTracks(page.tracks, false);
     updateLoadMoreButton();
 }
 
@@ -497,15 +522,18 @@ async function searchMusic(queryText) {
 async function loadMoreTracks() {
     if (!nextPageToken || !lastSearchQuery) return;
 
+    const seq = searchSeq;
     loadMoreBtn.disabled = true;
     loadMoreBtn.textContent = 'Загрузка...';
 
-    const moreTracks = await fetchSearchPage(lastSearchQuery, nextPageToken);
+    const page = await fetchSearchPage(lastSearchQuery, nextPageToken);
 
     loadMoreBtn.disabled = false;
     loadMoreBtn.textContent = 'Ещё';
 
-    if (moreTracks === null) return;
+    if (seq !== searchSeq || page === null) return;
+    nextPageToken = page.nextPageToken;
+    const moreTracks = page.tracks;
 
     const previousTracks = lastSearchTracks;
     lastSearchTracks = [...(lastSearchTracks || []), ...moreTracks];
@@ -522,18 +550,35 @@ function youtubeSearchUrl(queryText, pageToken = null) {
 }
 
 // Результаты YouTube в формате треков приложения
-function youtubeItemsToTracks(items) {
-    return items.map(item => ({
+// search.list отдаёт названия с HTML-сущностями («Rock &amp; Roll», «Don&#39;t») —
+// раскодируем, иначе через textContent они видны как есть. <textarea> разбирает
+// только сущности: разметка и скрипты в нём не выполняются
+const entityDecoder = document.createElement('textarea');
+function decodeEntities(text) {
+    if (!text || !text.includes('&')) return text || '';
+    entityDecoder.innerHTML = text;
+    return entityDecoder.value;
+}
+
+function youtubeItemsToTracks(items = []) {
+    return items.filter(item => item.id && item.id.videoId).map(item => ({
         id: item.id.videoId,
-        name: item.snippet.title,
-        artist_name: item.snippet.channelTitle,
+        name: decodeEntities(item.snippet.title),
+        artist_name: decodeEntities(item.snippet.channelTitle),
         audio: item.id.videoId // В качестве "аудио" передаем ID видео
     }));
 }
 
-// Запрашивает одну страницу результатов у YouTube Data API и обновляет nextPageToken
+// Запрашивает одну страницу результатов у YouTube Data API:
+// { tracks, nextPageToken } или null (ошибку показывает сама, если запрос не устарел)
 async function fetchSearchPage(queryText, pageToken) {
     const url = youtubeSearchUrl(queryText, pageToken);
+    const seq = searchSeq;
+    const showError = (text) => {
+        if (seq === searchSeq && navSearch.classList.contains('active')) {
+            trackList.innerHTML = `<p class="status">${text}</p>`;
+        }
+    };
 
     try {
         const response = await fetch(url);
@@ -541,16 +586,16 @@ async function fetchSearchPage(queryText, pageToken) {
 
         if (data.error) {
             console.error("Ошибка YouTube API:", data.error.message);
-            trackList.innerHTML = '<p class="status">Ошибка API. Проверьте ключ.</p>';
+            // 403 quotaExceeded — суточная квота YouTube API кончилась, ключ тут ни при чём
+            const quota = (data.error.errors || []).some(e => e.reason === 'quotaExceeded' || e.reason === 'dailyLimitExceeded');
+            showError(quota ? 'Лимит поиска YouTube на сегодня исчерпан. Попробуйте завтра.' : 'Ошибка API. Проверьте ключ.');
             return null;
         }
 
-        nextPageToken = data.nextPageToken || null;
-
-        return youtubeItemsToTracks(data.items);
+        return { tracks: youtubeItemsToTracks(data.items || []), nextPageToken: data.nextPageToken || null };
     } catch (error) {
         console.error("Ошибка сети:", error);
-        trackList.innerHTML = '<p class="status">Ошибка сети. Проверьте подключение.</p>';
+        showError('Ошибка сети. Проверьте подключение.');
         return null;
     }
 }
@@ -598,7 +643,7 @@ function renderTracks(tracks, isLibrary) {
         });
 
         // Пока выбираем треки для блока сценария — у каждого трека кнопка «＋»
-        if (pickTarget) {
+        if (pickBlock()) {
             const addBtn = document.createElement('button');
             addBtn.className = 'add-btn';
             addBtn.textContent = '＋';
@@ -611,6 +656,7 @@ function renderTracks(tracks, isLibrary) {
         likeBtn.className = 'like-btn';
         likeBtn.textContent = isLibrary ? '🗑️' : '♡';
         Object.assign(likeBtn.dataset, {
+            index: String(index),
             id: track.id,
             url: track.audio,
             name: track.name,
@@ -626,6 +672,14 @@ function renderTracks(tracks, isLibrary) {
     });
 }
 
+// Карточку ищем по индексу трека, а не по порядку в списке: после удаления
+// карточек из «Моей музыки» порядковые номера с индексами уже не совпадают
+function markTrackCardUnavailable(index) {
+    const btn = trackList.querySelector(`.play-btn[data-index="${index}"]`);
+    const card = btn && btn.closest('.track-card');
+    if (card) card.classList.add('unavailable');
+}
+
 // --- 8. ДЕЛЕГИРОВАНИЕ СОБЫТИЙ ---
 trackList.addEventListener('click', (e) => {
     const target = e.target;
@@ -635,8 +689,8 @@ trackList.addEventListener('click', (e) => {
     } else if (target.classList.contains('add-btn')) {
         addTrackToPickTarget(currentTracks[Number(target.dataset.index)], target);
     } else if (target.classList.contains('like-btn')) {
-        const isLibrary = navLibrary.classList.contains('active');
-        if (isLibrary) {
+        // Что делает кнопка, решает показанный список, а не активная вкладка
+        if (currentIsLibrary) {
             handleDelete(target);
         } else {
             handleLike(target);
@@ -647,14 +701,24 @@ trackList.addEventListener('click', (e) => {
 // --- 9. СОХРАНЕНИЕ В БИБЛИОТЕКУ (FIREBASE) ---
 async function handleLike(btn) {
     const track = btn.dataset;
+    // Уже сохранён или сохраняется — повторное нажатие не должно плодить дубли
+    if (['⏳', '❤️'].includes(btn.textContent.trim())) return;
     btn.innerHTML = '⏳';
 
     try {
         const fb = await loadFirebase();
         await fb.authReady;
+        const uid = fb.getCurrentUser().uid;
+        // Трек мог быть лайкнут раньше (в прошлом поиске) — второй копии в «Моей музыке» не нужно
+        const existing = await fb.getDocs(fb.query(fb.collection(fb.db, "liked_tracks"),
+            fb.where("uid", "==", uid), fb.where("audioUrl", "==", track.url)));
+        if (!existing.empty) {
+            btn.innerHTML = '❤️';
+            return;
+        }
         // Записываем информацию о треке в Firestore, привязывая к текущему пользователю
         await fb.addDoc(fb.collection(fb.db, "liked_tracks"), {
-            uid: fb.getCurrentUser().uid,
+            uid,
             trackId: track.id,
             name: track.name,
             artist: track.artist,
@@ -670,7 +734,10 @@ async function handleLike(btn) {
 }
 
 // «Моя музыка» = свои загруженные файлы сверху + лайкнутые треки YouTube
+let librarySeq = 0; // более ранняя загрузка не должна перерисовать более позднюю
+
 async function loadLibrary() {
+    const seq = ++librarySeq;
     trackList.innerHTML = '<p class="status">Загружаем вашу библиотеку...</p>';
     try {
         const fb = await loadFirebase();
@@ -686,16 +753,34 @@ async function loadLibrary() {
                 id: data.trackId,
                 name: data.name,
                 artist_name: data.artist,
-                audio: data.audioUrl
+                audio: data.audioUrl,
+                timestamp: data.timestamp || 0
             });
         });
+        // Firestore отдаёт документы в порядке случайных id, а не по времени —
+        // свежие лайки сверху сортируем сами
+        tracks.sort((a, b) => b.timestamp - a.timestamp);
 
-        // Пока грузились, пользователь мог уйти на другую вкладку
-        if (!navLibrary.classList.contains('active')) return;
-        renderTracks([...files, ...tracks.reverse()], true);
+        // Пока грузились, пользователь мог уйти на другую вкладку или запустить загрузку заново
+        if (seq !== librarySeq || !navLibrary.classList.contains('active')) return;
+        renderTracks([...files, ...tracks], true);
     } catch (error) {
         console.error("Ошибка загрузки библиотеки:", error);
+        if (seq !== librarySeq || !navLibrary.classList.contains('active')) return;
         trackList.innerHTML = '<p class="status">Не удалось загрузить библиотеку.</p>';
+    }
+}
+
+// Убирает карточку удалённого трека; сам трек помечаем недоступным, чтобы нон-стоп
+// очередь «Моей музыки» его больше не включала (индексы карточек при этом не сдвигаются)
+function removeTrackCard(btn, card) {
+    if (card) {
+        const track = currentTracks[Number(btn.dataset.index)];
+        if (track) track.unavailable = true;
+        card.remove();
+    }
+    if (trackList.querySelectorAll('.track-card').length === 0 && currentIsLibrary) {
+        trackList.innerHTML = '<p class="status">Список пуст</p>';
     }
 }
 
@@ -706,7 +791,7 @@ async function handleDelete(btn) {
     // Файл удаляется из облака насовсем — переспрашиваем
     if (btn.dataset.source === 'file') {
         if (!confirm(`Удалить файл «${btn.dataset.name}» из облака? В блоках мероприятий он перестанет играть.`)) return false;
-        if (card) card.remove();
+        removeTrackCard(btn, card);
         try {
             await filesApi(`/files/${encodeFileKey(btn.dataset.key)}`, { method: 'DELETE' });
             recentlyDeleted.add(btn.dataset.key);
@@ -717,12 +802,7 @@ async function handleDelete(btn) {
         return;
     }
 
-    if (card) {
-        card.remove();
-        if (trackList.children.length === 0) {
-            trackList.innerHTML = '<p class="status">Список пуст</p>';
-        }
-    }
+    removeTrackCard(btn, card);
 
     try {
         if (docId) {
@@ -735,7 +815,7 @@ async function handleDelete(btn) {
     }
 }
 
-// --- 9.1 СВОИ ФАЙЛЫ В ОБЛАКЕ (CLOUDFLARE R2) ---
+// --- 9.1 СВОИ ФАЙЛЫ В ОБЛАКЕ (CLOUDFLARE WORKERS KV) ---
 // Ключ файла — «<uid>/<uuid>/<имя>»; в URL каждую часть кодируем отдельно, слэши оставляем
 function encodeFileKey(key) {
     return key.split('/').map(encodeURIComponent).join('/');
@@ -851,6 +931,9 @@ async function uploadFile(file, onProgress) {
 // --- 10. ВОСПРОИЗВЕДЕНИЕ (YOUTUBE ИЛИ СВОЙ ФАЙЛ) ---
 // Запуск нового списка пользователем (не переход к следующему треку внутри очереди)
 function startList(index, tracks, isLibrary, { loop = true, block = null } = {}) {
+    // Пользователь включил другое, пока затухал прошлый блок, — его выбор главнее:
+    // отложенный запуск блока не должен перебить только что включённый трек
+    cancelFade();
     stopGame();
     activeQueueLoop = loop;
     playingBlock = block;
@@ -1177,6 +1260,8 @@ async function createEvent(title, type, date) {
 }
 
 function openEvent(ev) {
+    // Старые или повреждённые документы могут быть без блоков/треков — не падаем на них
+    ev.blocks = (ev.blocks || []).map(b => ({ ...b, tracks: b.tracks || [] }));
     currentEvent = ev;
     startRequests(ev);
     renderEventDetail();
@@ -1265,9 +1350,11 @@ eventsView.addEventListener('click', (e) => {
     const block = currentEvent && currentEvent.blocks[blockIndex];
 
     switch (action) {
-        case 'open-event':
-            openEvent(events.find(ev => ev.id === target.dataset.id));
+        case 'open-event': {
+            const ev = events.find(item => item.id === target.dataset.id);
+            if (ev) openEvent(ev);
             break;
+        }
         case 'back':
             loadEvents();
             break;
@@ -1371,9 +1458,16 @@ async function deleteEvent() {
     }
 }
 
+// Блок, в который сейчас добавляем треки, или null: открыли другое мероприятие,
+// вернулись к списку или удалили блок — тогда кнопки «＋» не показываем вовсе
+function pickBlock() {
+    if (!pickTarget || !currentEvent) return null;
+    return currentEvent.blocks.find(b => b.id === pickTarget.blockId) || null;
+}
+
 // Плашка «Добавляете в блок …» над поиском/библиотекой, пока выбираем треки
 function renderPickBanner(view) {
-    const block = pickTarget && currentEvent && currentEvent.blocks.find(b => b.id === pickTarget.blockId);
+    const block = pickBlock();
     if (!block || view === 'events') {
         pickBanner.classList.add('hidden');
         return;
@@ -1391,7 +1485,7 @@ pickBanner.addEventListener('click', (e) => {
 });
 
 function addTrackToPickTarget(track, btn) {
-    const block = pickTarget && currentEvent && currentEvent.blocks.find(b => b.id === pickTarget.blockId);
+    const block = pickBlock();
     if (!block || !track) return;
     block.tracks.push({
         id: track.id, name: track.name, artist_name: track.artist_name, audio: track.audio,
@@ -1404,21 +1498,45 @@ function addTrackToPickTarget(track, btn) {
     renderPickBanner('search');
 }
 
+// Новое затухание отменяет незаконченное: двойное нажатие «Следующий блок» или
+// смена блока посреди отрывка квиза иначе запускали бы оба callback'а, а второе
+// затухание начиналось бы с уже убавленной громкости и так её и оставляло
+let activeFade = null; // { timer, startVolume, source }
+
+// Отменяет затухание вместе с отложенным действием и возвращает громкость
+function cancelFade() {
+    if (!activeFade) return;
+    clearInterval(activeFade.timer);
+    if (activeFade.source === currentSource) playerSetVolume(activeFade.startVolume);
+    activeFade = null;
+}
+
 // Плавно уводит громкость в ноль, затем вызывает callback (смена блока без обрыва звука)
 function fadeOutThen(callback, ms = 1200) {
+    let startVolume = null;
+    if (activeFade) {
+        clearInterval(activeFade.timer);
+        if (activeFade.source === currentSource) startVolume = activeFade.startVolume;
+        activeFade = null;
+    }
     if (!playerIsPlaying()) {
+        if (startVolume !== null) playerSetVolume(startVolume);
         callback();
         return;
     }
     const steps = 12;
-    const startVolume = playerGetVolume();
+    if (startVolume === null) startVolume = playerGetVolume();
     const fadingSource = currentSource;
     let step = 0;
-    const timer = setInterval(() => {
+    const fade = { startVolume, source: fadingSource };
+    activeFade = fade;
+    const timer = fade.timer = setInterval(() => {
         step++;
-        playerSetVolume(Math.round(startVolume * (1 - step / steps)));
+        // Источник сменился посреди затухания — громкость нового трека не трогаем
+        if (currentSource === fadingSource) playerSetVolume(Math.round(startVolume * (1 - step / steps)));
         if (step >= steps) {
             clearInterval(timer);
+            activeFade = null;
             callback();
             // Если callback только поставил на паузу — возвращаем громкость,
             // иначе после «Играть» музыка продолжится беззвучно. Если же callback
@@ -1474,8 +1592,9 @@ function openShowMode() {
     showMode.removeAttribute('inert');
     document.body.classList.add('show-open');
     updateClock();
+    clearInterval(clockTimer); // повторное открытие не должно плодить таймеры
     clockTimer = setInterval(updateClock, 1000);
-    requestWakeLock();
+    if (!wakeLock || wakeLock.released) requestWakeLock();
     renderShowNow();
     renderShowBlocks();
     updateShowPlayPause();
@@ -1498,7 +1617,13 @@ function updateClock() {
 async function requestWakeLock() {
     if (!('wakeLock' in navigator)) return;
     try {
-        wakeLock = await navigator.wakeLock.request('screen');
+        const lock = await navigator.wakeLock.request('screen');
+        // Пульт успели закрыть, пока ждали разрешения, — замок сразу отпускаем
+        if (!showMode.classList.contains('open')) {
+            lock.release().catch(() => {});
+            return;
+        }
+        wakeLock = lock;
     } catch (error) {
         console.warn("Не удалось запретить гашение экрана:", error);
     }
@@ -1506,7 +1631,10 @@ async function requestWakeLock() {
 
 // Wake Lock снимается, когда вкладка уходит в фон — возвращаем его
 document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible' && showMode.classList.contains('open')) requestWakeLock();
+    // Только если прежний действительно снят: лишний «висящий» замок не отпустился бы
+    // при закрытии пульта, и экран перестал бы гаснуть вовсе
+    if (document.visibilityState === 'visible' && showMode.classList.contains('open')
+        && (!wakeLock || wakeLock.released)) requestWakeLock();
 });
 
 function currentBlockIndex() {
@@ -1632,6 +1760,12 @@ function afterAuthChange(user, force = false) {
     recentUploads.length = 0;
     recentlyDeleted.clear();
     currentEvent = null;
+    // Подписка на заказы прежнего пользователя после выхода упала бы с отказом в
+    // доступе, а «＋» продолжал бы целиться в блок чужого мероприятия
+    stopRequests();
+    pickTarget = null;
+    renderPickBanner();
+    if (navSearch.classList.contains('active') && lastSearchTracks) renderTracks(lastSearchTracks, false);
     if (navLibrary.classList.contains('active')) loadLibrary();
     if (navEvents.classList.contains('active')) loadEvents();
 }
@@ -1756,8 +1890,13 @@ async function accountAction(action) {
             return;
         } else if (action === 'sign-out') {
             if (!confirm('Выйти из аккаунта? На этом устройстве откроется пустое приложение без аккаунта; ваши данные останутся в аккаунте.')) return;
-            await fb.signOut(fb.auth); // onAuthStateChanged сам создаст новую анонимную сессию
-            await new Promise(resolve => fb.onAuthChange(resolve));
+            // onAuthStateChanged сам создаст новую анонимную сессию — ждём её.
+            // Подписываемся до выхода, чтобы не пропустить событие, и отписываемся после
+            let unsubscribe = () => {};
+            const anonReady = new Promise(resolve => { unsubscribe = fb.onAuthChange(resolve); });
+            await fb.signOut(fb.auth);
+            await anonReady;
+            unsubscribe();
         }
         renderAccountSheet(fb.getCurrentUser(), isSignedIn(fb.getCurrentUser()) ? '✓ Готово' : 'Вы вышли из аккаунта');
     } catch (error) {
@@ -1958,9 +2097,12 @@ async function setRequestsOpen(open) {
     const ev = currentEvent;
     try {
         const fb = await loadFirebase();
+        await fb.authReady;
         const data = { ownerUid: fb.getCurrentUser().uid, title: ev.title, requestsOpen: open, updatedAt: Date.now() };
-        // Не стираем опубликованные карточки бинго
-        if (publicEvent && publicEvent.bingo) data.bingo = publicEvent.bingo;
+        // Не стираем опубликованные карточки бинго. Берём их из базы, а не из publicEvent:
+        // он мог ещё не загрузиться, и тогда setDoc молча удалил бы бинго у гостей
+        const current = await readPublicEvent(fb, ev.id);
+        if (current && current.bingo) data.bingo = current.bingo;
         await fb.setDoc(fb.doc(fb.db, "public_events", ev.id), data);
         if (currentEvent === ev) publicEvent = data;
     } catch (error) {
@@ -1968,6 +2110,17 @@ async function setRequestsOpen(open) {
         alert("Не удалось изменить приём заказов.");
     }
     renderRequestsPanel();
+}
+
+// Свежая публичная карточка мероприятия из базы (или то, что уже загружено, если не вышло)
+async function readPublicEvent(fb, eventId) {
+    try {
+        const snap = await fb.getDoc(fb.doc(fb.db, "public_events", eventId));
+        return snap.exists() ? snap.data() : null;
+    } catch (error) {
+        console.warn("Не удалось прочитать публичную карточку:", error);
+        return requestsEventId === eventId ? publicEvent : null;
+    }
 }
 
 // Название меняли — гостям тоже показываем новое
@@ -2004,7 +2157,12 @@ async function setRequestsStatus(items, status) {
 async function acceptRequestGroup(items) {
     const first = items[0];
     const block = currentEvent.blocks.find(b => b.id === defaultTargetBlock());
-    if (!block) return;
+    if (!block) {
+        alert('В сценарии нет блоков — добавьте блок, чтобы принимать заказы.');
+        renderRequestsPanel(); // вернуть нажатой кнопке «✓» доступность
+        renderShowRequests();
+        return;
+    }
 
     if (!first.videoId) {
         // Гость написал название без поиска — ищем сами и добавляем кнопкой ＋
@@ -2379,6 +2537,12 @@ function startGame(ev, block, trackIndex = 0) {
 // --- Хуки плеера ---
 function gameOnPlaying() {
     if (!activeGame || gameTimer) return;
+    // Музыку после «Замри» включили не кнопкой «Музыка!» (с наушников, экрана
+    // блокировки) — снимаем заставку и заводим следующую паузу, иначе игра встанет
+    if (activeGame.type === 'freeze' && activeGame.frozen) {
+        activeGame.frozen = false;
+        freezeOverlay.classList.add('hidden');
+    }
     if (activeGame.type === 'freeze' && !activeGame.frozen) {
         const sec = FREEZE_MIN_SEC + Math.random() * (FREEZE_MAX_SEC - FREEZE_MIN_SEC);
         gameTimer = setTimeout(freezeNow, sec * 1000);
@@ -2475,7 +2639,9 @@ function quizNext() {
 function cleanTitle(name) {
     return name
         .replace(/[(\[][^)\]]*[)\]]/g, '')
-        .replace(/\b(official|video|audio|lyrics?|hd|4k|remaster(ed)?|клип|премьера)\b.*$/i, '')
+        // Границы слова — через классы букв Unicode: \b в JS понимает только латиницу,
+        // и «клип»/«премьера» с ним никогда не совпадали
+        .replace(/(^|[^\p{L}\p{N}])(official|video|audio|lyrics?|hd|4k|remaster(ed)?|клип|премьера)(?=$|[^\p{L}\p{N}]).*$/iu, '$1')
         .replace(/\s+(ft\.?|feat\.?)\s.*$/i, '')
         .replace(/\s{2,}/g, ' ')
         .replace(/[\s\-–—|:]+$/, '')
@@ -2510,10 +2676,13 @@ async function publishBingo(ev, block) {
         const fb = await loadFirebase();
         await fb.authReady;
         const bingo = { titles: titles.slice(0, 100), size: bingoSize(titles.length), round: Date.now(), blockTitle: block.title };
+        // Приём заказов берём из базы: publicEvent мог ещё не загрузиться, и запуск
+        // бинго тогда молча закрыл бы гостям заказ песен
+        const current = await readPublicEvent(fb, ev.id);
         const data = {
             ownerUid: fb.getCurrentUser().uid,
             title: ev.title,
-            requestsOpen: !!(publicEvent && publicEvent.requestsOpen),
+            requestsOpen: !!(current && current.requestsOpen),
             updatedAt: Date.now(),
             bingo
         };
@@ -2617,6 +2786,7 @@ showGame.addEventListener('click', (e) => {
         case 'quiz-more':
             g.extended = true;
             clearGameTimer();
+            cancelFade(); // отрывок как раз затухал — не даём ему встать на паузу
             playerPlay();
             break;
         case 'quiz-reveal':
