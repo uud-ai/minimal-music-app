@@ -127,6 +127,7 @@ const loadMoreBtn = document.getElementById('load-more-btn');
 const audioWrapper = document.getElementById('audio-wrapper');
 const filePlayer = document.getElementById('file-player');
 const uploadBar = document.getElementById('upload-bar');
+const libraryHead = document.getElementById('library-head');
 const npTitle = document.getElementById('np-title');
 const npArtist = document.getElementById('np-artist');
 const npPlayPause = document.getElementById('np-playpause');
@@ -190,6 +191,7 @@ const ICONS = {
     mic: svg('<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M6 11a6 6 0 0 0 12 0M12 17v4M9 21h6"/>'),
     medal: svg('<circle cx="12" cy="15" r="5"/><path d="M8.5 3.5 12 10l3.5-6.5"/><path d="M12 12.6l.8 1.5 1.6.2-1.2 1.1.3 1.6-1.5-.8-1.5.8.3-1.6-1.2-1.1 1.6-.2z" fill="currentColor" stroke="none"/>'),
     rings: svg('<circle cx="9" cy="14.5" r="5"/><circle cx="15" cy="14.5" r="5"/><path d="M10.5 4.5h3L15 6.8l-3 2.2-3-2.2z"/>'),
+    shuffle: svg('<path d="M16.5 4.5 20 8l-3.5 3.5M4 8h3.2c2 0 3.2 1 4.3 2.7l1 1.6c1.1 1.7 2.3 2.7 4.3 2.7H20M16.5 12.5 20 16l-3.5 3.5M4 16h3.2c1.4 0 2.4-.5 3.2-1.4M13.6 9.4c.8-.9 1.8-1.4 3.2-1.4"/>'),
     calendar: svg('<rect x="4" y="5.5" width="16" height="14.5" rx="2.5"/><path d="M4 10h16M8.5 3.5v4M15.5 3.5v4"/>')
 };
 
@@ -435,7 +437,8 @@ function onPlaybackError() {
     const track = activeQueue && activeQueue[activeQueueIndex];
     if (track) {
         track.unavailable = true;
-        if (activeQueue === currentTracks) markTrackCardUnavailable(activeQueueIndex);
+        const shownIndex = currentTracks.indexOf(track);
+        if (shownIndex >= 0) markTrackCardUnavailable(shownIndex);
     }
     if (!playNext()) {
         stopProgressLoop();
@@ -601,6 +604,7 @@ function showView(view) {
     trackList.classList.toggle('hidden', view === 'events');
     eventsView.classList.toggle('hidden', view !== 'events');
     uploadBar.classList.toggle('hidden', view !== 'library');
+    libraryHead.classList.toggle('hidden', view !== 'library');
     if (view !== 'search') loadMoreBtn.classList.add('hidden');
     renderPickBanner(view);
 }
@@ -611,7 +615,7 @@ navSearch.addEventListener('click', () => {
         renderSearchResults();
         updateLoadMoreButton();
     } else {
-        trackList.innerHTML = '<p class="status">Введите название песни для поиска</p>';
+        renderSearchHome();
     }
 });
 
@@ -647,6 +651,7 @@ let lastSearchChannel = null;
 let searchBack = null; // { query, tracks, nextPageToken }
 
 async function searchMusic(queryText) {
+    rememberSearch(queryText);
     lastSearchChannel = null;
     searchBack = null;
     await runSearch(queryText, null, 'Ищем музыку на YouTube...');
@@ -682,7 +687,7 @@ function closeChannel() {
         lastSearchQuery = '';
         lastSearchTracks = null;
         nextPageToken = null;
-        trackList.innerHTML = '<p class="status">Введите название песни для поиска</p>';
+        renderSearchHome();
     }
     updateLoadMoreButton();
 }
@@ -818,20 +823,25 @@ function updateLoadMoreButton() {
 loadMoreBtn.addEventListener('click', loadMoreTracks);
 
 // --- 7. ОТРИСОВКА ИНТЕРФЕЙСА ---
-function renderTracks(tracks, isLibrary) {
+// sections — заголовки внутри списка: [{ start, title, action: { label, name } }]
+function renderTracks(tracks, isLibrary, { sections = [], emptyText = 'Список пуст' } = {}) {
     trackList.innerHTML = '';
     currentTracks = tracks || [];
     currentIsLibrary = isLibrary;
 
     if (!tracks || tracks.length === 0) {
-        trackList.innerHTML = '<p class="status">Список пуст</p>';
+        trackList.replaceChildren(el('p', { class: 'status' }, emptyText));
         return;
     }
 
+    const playingIndex = playingIndexIn(currentTracks);
     tracks.forEach((track, index) => {
+        const section = sections.find(sec => sec.start === index);
+        if (section) trackList.appendChild(listSection(section));
+
         const trackCard = document.createElement('div');
         trackCard.className = track.unavailable ? 'track-card unavailable' : 'track-card';
-        if (activeQueue === tracks && activeQueueIndex === index) trackCard.classList.add('is-playing');
+        if (index === playingIndex) trackCard.classList.add('is-playing');
 
         const info = document.createElement('div');
         info.className = 'track-info';
@@ -875,6 +885,11 @@ function renderTracks(tracks, isLibrary) {
         const likeBtn = document.createElement('button');
         likeBtn.className = 'like-btn';
         setLikeState(likeBtn, isLibrary ? 'trash' : 'like');
+        // Свой файл и так в «Моей музыке» — вне её «лайкать» его некуда
+        if (!isLibrary && track.source === 'file') {
+            likeBtn.disabled = true;
+            likeBtn.style.visibility = 'hidden';
+        }
         Object.assign(likeBtn.dataset, {
             index: String(index),
             id: track.id,
@@ -893,6 +908,13 @@ function renderTracks(tracks, isLibrary) {
     });
 }
 
+// Заголовок раздела в списке треков, справа — необязательная ссылка-действие
+function listSection({ title, action }) {
+    return el('div', { class: 'list-section' },
+        el('h2', {}, title),
+        action ? el('button', { class: 'link-btn', dataset: { action: action.name } }, action.label) : null);
+}
+
 // Карточку ищем по индексу трека, а не по порядку в списке: после удаления
 // карточек из «Моей музыки» порядковые номера с индексами уже не совпадают
 function markTrackCardUnavailable(index) {
@@ -907,8 +929,15 @@ trackList.addEventListener('click', (e) => {
     const target = e.target.closest('button');
     if (!target) return;
 
-    if (target.closest('[data-action="channel-back"]')) {
+    const action = target.dataset.action;
+    if (action === 'channel-back') {
         closeChannel();
+    } else if (target.dataset.query) {
+        searchInput.value = target.dataset.query;
+        searchMusic(target.dataset.query);
+    } else if (action === 'clear-searches' || action === 'clear-played') {
+        writeRecent(action === 'clear-searches' ? RECENT_SEARCHES_KEY : RECENT_TRACKS_KEY, []);
+        renderSearchHome();
     } else if (target.classList.contains('artist-link')) {
         const track = currentTracks[Number(target.dataset.index)];
         if (track) openChannel(track.channelId, track.artist_name);
@@ -962,11 +991,131 @@ async function handleLike(btn) {
     }
 }
 
+// --- 9.0 ШАПКА «МОЕЙ МУЗЫКИ» И СТАРТОВЫЙ ЭКРАН ПОИСКА ---
+// Русское склонение: plural(5, 'трек', 'трека', 'треков') → «треков»
+function plural(n, one, few, many) {
+    const mod10 = n % 10;
+    const mod100 = n % 100;
+    if (mod10 === 1 && mod100 !== 11) return one;
+    if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return few;
+    return many;
+}
+
+// Заголовок экрана, сколько всего треков и кнопки «Слушать всё» / «Перемешать».
+// tracks === null — библиотека ещё грузится: показываем только заголовок
+function renderLibraryHead(tracks) {
+    const present = (tracks || []).filter(t => !t.removed);
+    const files = present.filter(t => t.source === 'file').length;
+    const playable = present.filter(t => !t.unavailable).length;
+    let summary = '';
+    if (tracks && present.length) {
+        summary = `${present.length} ${plural(present.length, 'трек', 'трека', 'треков')}`;
+        if (files) summary += `, из них ${files} ${plural(files, 'свой файл', 'своих файла', 'своих файлов')}`;
+    }
+    libraryHead.replaceChildren(
+        el('h2', { class: 'page-title' }, 'Моя музыка'),
+        summary ? el('p', { class: 'page-sub' }, summary) : null,
+        tracks && playable ? el('div', { class: 'library-actions' },
+            el('button', { class: 'primary-btn', dataset: { libraryAction: 'play-all' } }, ico('play'), 'Слушать всё'),
+            el('button', { class: 'ghost-btn', dataset: { libraryAction: 'shuffle' } }, ico('shuffle'), 'Перемешать')) : null);
+}
+
+libraryHead.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-library-action]');
+    if (!btn || !currentIsLibrary) return;
+    const playable = currentTracks.filter(t => !t.unavailable);
+    if (playable.length === 0) return;
+    if (btn.dataset.libraryAction === 'play-all') {
+        startList(currentTracks.indexOf(playable[0]), currentTracks, true);
+    } else {
+        // Очередь — перемешанная копия списка из тех же треков (подсветка в списке сохраняется)
+        startList(0, shuffled(playable), true);
+    }
+});
+
+// Недавние запросы и недавно игравшие треки хранятся только на этом устройстве
+const RECENT_SEARCHES_KEY = 'recent-searches';
+const RECENT_TRACKS_KEY = 'recent-tracks';
+const MAX_RECENT_SEARCHES = 8;
+const MAX_RECENT_TRACKS = 15;
+
+function readRecent(key) {
+    try {
+        const list = JSON.parse(localStorage.getItem(key));
+        return Array.isArray(list) ? list : [];
+    } catch {
+        return [];
+    }
+}
+
+function writeRecent(key, list) {
+    try { localStorage.setItem(key, JSON.stringify(list)); } catch { /* приватный режим — не критично */ }
+}
+
+function rememberSearch(queryText) {
+    const q = queryText.trim();
+    if (!q) return;
+    const rest = readRecent(RECENT_SEARCHES_KEY).filter(x => x.toLowerCase() !== q.toLowerCase());
+    writeRecent(RECENT_SEARCHES_KEY, [q, ...rest].slice(0, MAX_RECENT_SEARCHES));
+}
+
+// Запоминаем то, что человек слушал сам: треки сценария мероприятия сюда не попадают
+function rememberTrack(track) {
+    if (!track || !track.audio || playingBlock) return;
+    const item = { id: track.id, name: track.name, artist_name: track.artist_name, audio: track.audio };
+    if (track.channelId) item.channelId = track.channelId;
+    if (track.source === 'file') Object.assign(item, { source: 'file', fileKey: track.fileKey });
+    const rest = readRecent(RECENT_TRACKS_KEY).filter(t => t.audio !== track.audio);
+    writeRecent(RECENT_TRACKS_KEY, [item, ...rest].slice(0, MAX_RECENT_TRACKS));
+}
+
+// Вкладка «Поиск» до первого запроса: недавние запросы и недавно игравшие треки
+function renderSearchHome() {
+    if (!navSearch.classList.contains('active')) return;
+    const searches = readRecent(RECENT_SEARCHES_KEY);
+    const played = readRecent(RECENT_TRACKS_KEY);
+
+    if (searches.length === 0 && played.length === 0) {
+        currentTracks = [];
+        currentIsLibrary = false;
+        trackList.replaceChildren(el('div', { class: 'search-welcome' },
+            el('p', { class: 'search-welcome-title' }, 'Что послушаем?'),
+            el('p', {}, 'Напишите название песни или имя исполнителя — найдём на YouTube. Здесь появятся ваши недавние запросы и треки.')));
+        return;
+    }
+
+    if (played.length) {
+        renderTracks(played, false, { sections: [{ start: 0, title: 'Недавно играли', action: { label: 'Очистить', name: 'clear-played' } }] });
+    } else {
+        currentTracks = [];
+        currentIsLibrary = false;
+        trackList.replaceChildren();
+    }
+    if (searches.length) {
+        trackList.prepend(
+            listSection({ title: 'Недавние запросы', action: { label: 'Очистить', name: 'clear-searches' } }),
+            el('div', { class: 'chips' }, ...searches.map(q =>
+                el('button', { class: 'chip', dataset: { query: q } }, ico('clock'), q))));
+    }
+}
+
+// Очистили строку поиска (крестиком или стёрли) — возвращаемся к стартовому экрану
+searchInput.addEventListener('input', () => {
+    if (searchInput.value || !navSearch.classList.contains('active') || lastSearchChannel || !lastSearchTracks) return;
+    searchSeq++; // незаконченный запрос не должен прийти поверх
+    lastSearchTracks = null;
+    lastSearchQuery = '';
+    nextPageToken = null;
+    updateLoadMoreButton();
+    renderSearchHome();
+});
+
 // «Моя музыка» = свои загруженные файлы сверху + лайкнутые треки YouTube
 let librarySeq = 0; // более ранняя загрузка не должна перерисовать более позднюю
 
 async function loadLibrary() {
     const seq = ++librarySeq;
+    renderLibraryHead(null);
     trackList.innerHTML = '<p class="status">Загружаем вашу библиотеку...</p>';
     try {
         const fb = await loadFirebase();
@@ -993,7 +1142,14 @@ async function loadLibrary() {
 
         // Пока грузились, пользователь мог уйти на другую вкладку или запустить загрузку заново
         if (seq !== librarySeq || !navLibrary.classList.contains('active')) return;
-        renderTracks([...files, ...tracks], true);
+        const sections = [];
+        if (files.length) sections.push({ start: 0, title: 'Мои файлы' });
+        if (tracks.length) sections.push({ start: files.length, title: 'Понравившиеся' });
+        renderTracks([...files, ...tracks], true, {
+            sections,
+            emptyText: 'Здесь соберутся песни, которые вы отметите ♡ в поиске, и ваши загруженные файлы.'
+        });
+        renderLibraryHead(currentTracks);
     } catch (error) {
         console.error("Ошибка загрузки библиотеки:", error);
         if (seq !== librarySeq || !navLibrary.classList.contains('active')) return;
@@ -1006,12 +1162,19 @@ async function loadLibrary() {
 function removeTrackCard(btn, card) {
     if (card) {
         const track = currentTracks[Number(btn.dataset.index)];
-        if (track) track.unavailable = true;
+        if (track) track.unavailable = track.removed = true;
         card.remove();
     }
-    if (trackList.querySelectorAll('.track-card').length === 0 && currentIsLibrary) {
-        trackList.innerHTML = '<p class="status">Список пуст</p>';
+    if (!currentIsLibrary) return;
+    // Раздел без единого трека — убираем и его заголовок
+    trackList.querySelectorAll('.list-section').forEach(head => {
+        const next = head.nextElementSibling;
+        if (!next || !next.classList.contains('track-card')) head.remove();
+    });
+    if (trackList.querySelectorAll('.track-card').length === 0) {
+        trackList.replaceChildren(el('p', { class: 'status' }, 'Здесь соберутся песни, которые вы отметите ♡ в поиске, и ваши загруженные файлы.'));
     }
+    renderLibraryHead(currentTracks);
 }
 
 async function handleDelete(btn) {
@@ -1185,11 +1348,26 @@ function playFromList(index, tracks, isLibrary) {
 }
 
 // Подсвечивает в открытом списке трек, который сейчас играет
+// (по самому треку: при «Перемешать» очередь — другой массив из тех же треков)
 function highlightPlayingCard() {
     trackList.querySelectorAll('.track-card.is-playing').forEach(card => card.classList.remove('is-playing'));
-    if (activeQueue !== currentTracks) return;
-    const btn = trackList.querySelector(`.play-btn[data-index="${activeQueueIndex}"]`);
+    const index = playingIndexIn(currentTracks);
+    if (index < 0) return;
+    const btn = trackList.querySelector(`.play-btn[data-index="${index}"]`);
     if (btn) btn.closest('.track-card').classList.add('is-playing');
+}
+
+function playingTrack() {
+    return activeQueue ? activeQueue[activeQueueIndex] || null : null;
+}
+
+// Где в списке играющий трек: сам объект, а если список собран заново
+// (например, «Недавно играли») — та же песня по ID видео или файлу
+function playingIndexIn(list) {
+    const playing = playingTrack();
+    if (!playing) return -1;
+    const same = list.indexOf(playing);
+    return same >= 0 ? same : list.findIndex(t => t.audio && t.audio === playing.audio);
 }
 
 // Синхронизирует «сердечко» внизу с треком, который сейчас играет
@@ -1245,6 +1423,7 @@ function playMusic(track) {
     fillCover(npCover, track);
     nowPlayingTrack = track;
     renderFullPlayer();
+    rememberTrack(track);
     setSeek(0);
     setTimes(0, 0);
     audioWrapper.classList.remove('hidden');
@@ -2821,6 +3000,7 @@ async function startGuestPage(eventId) {
 }
 
 if (GUEST_EVENT_ID) startGuestPage(GUEST_EVENT_ID);
+else if (!BINGO_EVENT_ID) renderSearchHome();
 
 // --- 16. ИГРЫ: «ЗАМРИ», «УГАДАЙ МЕЛОДИЮ», МУЗЫКАЛЬНОЕ БИНГО ---
 // Игра — режим блока сценария (block.game). Блок с игрой запускается на пульте
