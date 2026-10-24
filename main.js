@@ -98,6 +98,8 @@ function loadFirebase() {
 // Ссылка из QR-кода для гостей: ?guest=<id мероприятия> — вместо приложения
 // открывается страница заказа песни (раздел 14)
 const GUEST_EVENT_ID = new URLSearchParams(location.search).get('guest');
+// ?bingo=<id> — карточка музыкального бинго на телефоне гостя (раздел 16)
+const BINGO_EVENT_ID = new URLSearchParams(location.search).get('bingo');
 
 // Константы приложения
 const YOUTUBE_API_KEY = "AIzaSyBgrlvnKuTsj4HSitEUT3Ae4yJLbNozfd8";
@@ -148,7 +150,7 @@ let lastSearchQuery = '';
 let nextPageToken = null;
 
 // Асинхронно загружаем скрипт YouTube IFrame API (гостю, заказывающему песню, плеер не нужен)
-if (!GUEST_EVENT_ID) {
+if (!GUEST_EVENT_ID && !BINGO_EVENT_ID) {
     const tag = document.createElement('script');
     tag.src = "https://www.youtube.com/iframe_api";
     const firstScriptTag = document.getElementsByTagName('script')[0];
@@ -262,6 +264,7 @@ function playerSetVolume(volume) {
 }
 
 function onPlaybackPlaying() {
+    gameOnPlaying();
     npPlayPause.textContent = '⏸️';
     startProgressLoop();
     if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing';
@@ -269,6 +272,7 @@ function onPlaybackPlaying() {
 }
 
 function onPlaybackPaused() {
+    gameOnPaused();
     npPlayPause.textContent = '▶️';
     stopProgressLoop();
     if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused';
@@ -280,6 +284,11 @@ function onPlaybackEnded() {
     npSeek.value = 0;
     npCurrent.textContent = '0:00';
 
+    // Квиз и бинго сами решают, что дальше
+    if (gameOnEnded()) {
+        updateShowPlayPause();
+        return;
+    }
     // Нон-стоп: сразу включаем следующий трек из того же списка
     if (!playNext()) {
         npPlayPause.textContent = '▶️';
@@ -842,6 +851,7 @@ async function uploadFile(file, onProgress) {
 // --- 10. ВОСПРОИЗВЕДЕНИЕ (YOUTUBE ИЛИ СВОЙ ФАЙЛ) ---
 // Запуск нового списка пользователем (не переход к следующему треку внутри очереди)
 function startList(index, tracks, isLibrary, { loop = true, block = null } = {}) {
+    stopGame();
     activeQueueLoop = loop;
     playingBlock = block;
     playFromList(index, tracks, isLibrary);
@@ -923,14 +933,21 @@ function playMusic(track) {
 // Мероприятие — документ в коллекции events: название, тип, дата и блоки сценария.
 // Блок — отрезок вечера со своей музыкой: «фон» играет по кругу, «сигнал» — один раз
 // (выход, награждение, гимн). Блок без треков — тишина (речи, тосты).
+// Блок шаблона: [название, фон по кругу?, игра] — игры см. раздел 16
 const EVENT_TYPES = {
     corporate: { label: 'Корпоратив', icon: '🥂', blocks: [
         ['Сбор гостей', true], ['Открытие', false], ['Награждение', false],
-        ['Банкет', true], ['Танцы', true], ['Финал', false]
+        ['Банкет', true], ['Музыкальное бинго', false, 'bingo'], ['Угадай мелодию', false, 'quiz'],
+        ['Танцы', true], ['Финал', false]
     ] },
     kids: { label: 'Детский праздник', icon: '🎈', blocks: [
-        ['Встреча гостей', true], ['Выход аниматора', false], ['Игры', true],
+        ['Встреча гостей', true], ['Выход аниматора', false], ['Игра «Замри»', true, 'freeze'],
         ['Торт и свечи', false], ['Дискотека', true], ['Прощание', false]
+    ] },
+    quizparty: { label: 'Квиз-вечеринка', icon: '🎤', blocks: [
+        ['Сбор гостей', true], ['Угадай мелодию: раунд 1', false, 'quiz'], ['Перерыв', true],
+        ['Музыкальное бинго', false, 'bingo'], ['Угадай мелодию: финал', false, 'quiz'],
+        ['Награждение', false], ['Танцы', true]
     ] },
     official: { label: 'Официальный приём', icon: '🎖️', blocks: [
         ['Сбор гостей', true], ['Гимн', false], ['Выход официальных лиц', false],
@@ -1142,8 +1159,8 @@ function renderEventsList() {
 
 async function createEvent(title, type, date) {
     if (!title) return;
-    const blocks = eventTypeInfo(type).blocks.map(([blockTitle, loop]) => ({
-        id: newBlockId(), title: blockTitle, time: '', loop, tracks: []
+    const blocks = eventTypeInfo(type).blocks.map(([blockTitle, loop, game = '']) => ({
+        id: newBlockId(), title: blockTitle, time: '', loop, game, tracks: []
     }));
     try {
         const fb = await loadFirebase();
@@ -1194,7 +1211,8 @@ function renderEventDetail() {
             el('input', { type: 'date', value: ev.date || '', dataset: { field: 'date' } })),
         el('div', { class: 'event-actions' },
             el('button', { class: 'primary-btn', dataset: { action: 'show' } }, '🎬 Режим ведущего'),
-            el('button', { class: 'ghost-btn', dataset: { action: 'delete-event' } }, '🗑 Удалить')),
+            el('button', { class: 'ghost-btn', dataset: { action: 'duplicate' }, title: 'Копия сценария с треками' }, '📋 Копия'),
+            el('button', { class: 'ghost-btn', dataset: { action: 'delete-event' }, 'aria-label': 'Удалить мероприятие' }, '🗑')),
         el('button', { class: 'ghost-btn', dataset: { action: 'download' } }, '⬇ Скачать для офлайна'),
         offlineStatus,
         eventsOffline ? el('p', { class: 'offline-note' }, 'Нет сети — открыта скачанная копия, изменения не сохранятся') : null);
@@ -1222,6 +1240,14 @@ function renderEventDetail() {
                 el('button', { class: 'mini-btn', dataset: { action: 'move-up', block: i }, disabled: i === 0, 'aria-label': 'Выше' }, '↑'),
                 el('button', { class: 'mini-btn', dataset: { action: 'move-down', block: i }, disabled: i === ev.blocks.length - 1, 'aria-label': 'Ниже' }, '↓'),
                 el('button', { class: 'mini-btn', dataset: { action: 'remove-block', block: i }, 'aria-label': 'Удалить блок' }, '🗑')),
+            el('div', { class: 'block-row block-tools' },
+                el('select', { dataset: { field: 'game', block: i } },
+                    ...Object.entries(GAMES).map(([value, g]) =>
+                        el('option', { value, selected: (block.game || '') === value }, `${g.icon} ${g.label}`)))),
+            block.game ? el('p', { class: 'block-game-hint' }, GAMES[block.game].hint) : null,
+            block.game === 'bingo' ? el('div', { class: 'block-row' },
+                el('button', { class: 'ghost-btn', dataset: { action: 'bingo-print', block: i } }, '🖨 Карточки'),
+                el('button', { class: 'ghost-btn', dataset: { action: 'bingo-qr', block: i } }, '📱 На телефоны')) : null,
             tracks,
             el('button', { class: 'link-btn', dataset: { action: 'pick', block: i } }, '＋ Добавить трек'));
     });
@@ -1250,6 +1276,17 @@ eventsView.addEventListener('click', (e) => {
             break;
         case 'download':
             downloadEventForOffline(target);
+            break;
+        case 'duplicate':
+            duplicateEvent();
+            break;
+        case 'bingo-print':
+            printBingoCards(block);
+            break;
+        case 'bingo-qr':
+            publishBingo(currentEvent, block).then(ok => {
+                if (ok) openQrFullscreen(bingoUrl(currentEvent.id), 'Карточка бинго 🎱');
+            });
             break;
         case 'delete-event':
             if (confirm(`Удалить «${currentEvent.title}»?`)) deleteEvent();
@@ -1304,6 +1341,12 @@ eventsView.addEventListener('change', (e) => {
     else if (field === 'time') block.time = value;
     else if (field === 'block-title') block.title = value.trim() || block.title;
     else if (field === 'loop') block.loop = value === 'loop';
+    else if (field === 'game') {
+        block.game = value;
+        saveEvent();
+        renderEventDetail(); // подсказка и кнопки бинго зависят от игры
+        return;
+    }
     saveEvent();
 });
 
@@ -1313,9 +1356,12 @@ async function deleteEvent() {
         const fb = await loadFirebase();
         await fb.deleteDoc(fb.doc(fb.db, "events", id));
         // Ссылка у гостей перестанет работать вместе с мероприятием
-        if (publicEvent) await fb.deleteDoc(fb.doc(fb.db, "public_events", id)).catch(() => {});
-        await Promise.all(requests.filter(r => r.eventId === id)
-            .map(r => fb.deleteDoc(fb.doc(fb.db, "requests", r.id)).catch(() => {})));
+        // Не полагаемся на загруженные publicEvent/requests — удаление могли нажать раньше
+        const publicRef = fb.doc(fb.db, "public_events", id);
+        if ((await fb.getDoc(publicRef).catch(() => null))?.exists()) await fb.deleteDoc(publicRef).catch(() => {});
+        const eventRequests = await fb.getDocs(fb.query(fb.collection(fb.db, "requests"),
+            fb.where("ownerUid", "==", fb.getCurrentUser().uid), fb.where("eventId", "==", id))).catch(() => null);
+        if (eventRequests) await Promise.all(eventRequests.docs.map(d => fb.deleteDoc(d.ref).catch(() => {})));
         removeOfflineEvent(id);
         if (playingBlock && playingBlock.eventId === id) playingBlock = null;
         loadEvents();
@@ -1387,8 +1433,12 @@ function playBlock(blockIndex, trackIndex = 0) {
     const block = ev && ev.blocks[blockIndex];
     if (!block) return;
 
+    if (block.game && block.tracks.length && !showMode.classList.contains('open')) openShowMode();
     fadeOutThen(() => {
-        if (block.tracks.length === 0) {
+        stopGame();
+        if (block.tracks.length && block.game) {
+            startGame(ev, block, trackIndex);
+        } else if (block.tracks.length === 0) {
             // Блок-тишина: просто останавливаем музыку
             playingBlock = { eventId: ev.id, blockId: block.id };
             activeQueue = null;
@@ -1470,7 +1520,9 @@ function renderShowNow(status) {
     const block = index >= 0 ? currentEvent.blocks[index] : null;
     showBlockTitle.textContent = block ? block.title : 'Ничего не запущено';
     const track = activeQueue && activeQueue[activeQueueIndex];
-    showTrackTitle.textContent = status || (block && track ? track.name : '');
+    const hidden = activeGame && activeGame.type === 'quiz' && !activeGame.revealed;
+    showTrackTitle.textContent = status || (block && track ? (hidden ? '??? — угадайте!' : track.name) : '');
+    renderGame();
 }
 
 function renderShowBlocks() {
@@ -1482,7 +1534,7 @@ function renderShowBlocks() {
                 el('span', { class: 'show-block-time' }, block.time || '—'),
                 el('span', { class: 'show-block-title' }, block.title),
                 el('span', { class: 'show-block-kind' },
-                    block.tracks.length === 0 ? '🤫' : (block.loop ? '🔁' : '🎺'))))));
+                    block.game ? GAMES[block.game].icon : block.tracks.length === 0 ? '🤫' : (block.loop ? '🔁' : '🎺'))))));
     const currentEl = showBlocks.querySelector('.current');
     if (currentEl) currentEl.scrollIntoView({ block: 'nearest' });
 }
@@ -1907,6 +1959,8 @@ async function setRequestsOpen(open) {
     try {
         const fb = await loadFirebase();
         const data = { ownerUid: fb.getCurrentUser().uid, title: ev.title, requestsOpen: open, updatedAt: Date.now() };
+        // Не стираем опубликованные карточки бинго
+        if (publicEvent && publicEvent.bingo) data.bingo = publicEvent.bingo;
         await fb.setDoc(fb.doc(fb.db, "public_events", ev.id), data);
         if (currentEvent === ev) publicEvent = data;
     } catch (error) {
@@ -2050,7 +2104,7 @@ async function handleRequestsClick(e) {
             }
         }
     } else if (action === 'qr-full') {
-        openQrFullscreen();
+        openQrFullscreen(guestUrl(currentEvent.id));
     }
 }
 
@@ -2103,11 +2157,10 @@ showRequestsPanel.addEventListener('click', (e) => {
 });
 showRequestsPanel.addEventListener('change', handleRequestsChange);
 
-function openQrFullscreen() {
+function openQrFullscreen(url = currentEvent && guestUrl(currentEvent.id), heading = 'Закажите песню 🎵') {
     if (!currentEvent) return;
-    const url = guestUrl(currentEvent.id);
     qrFullscreen.replaceChildren(
-        el('p', { class: 'qr-title' }, 'Закажите песню 🎵'),
+        el('p', { class: 'qr-title' }, heading),
         qrNode(url, 'qr qr-big'),
         el('p', { class: 'qr-event' }, currentEvent.title),
         el('p', { class: 'qr-url' }, url.replace(/^https?:\/\//, '')),
@@ -2259,3 +2312,427 @@ async function startGuestPage(eventId) {
 }
 
 if (GUEST_EVENT_ID) startGuestPage(GUEST_EVENT_ID);
+
+// --- 16. ИГРЫ: «ЗАМРИ», «УГАДАЙ МЕЛОДИЮ», МУЗЫКАЛЬНОЕ БИНГО ---
+// Игра — режим блока сценария (block.game). Блок с игрой запускается на пульте
+// ведущего, а игра перехватывает события плеера: ставит паузы, режет треки на
+// отрывки и решает, что играть дальше.
+const GAMES = {
+    '': { icon: '🎵', label: 'Без игры', hint: '' },
+    freeze: { icon: '🧊', label: 'Игра «Замри»', hint: 'Музыка остановится в случайный момент — кто пошевелился, выбывает. Продолжить — кнопкой «Музыка!».' },
+    quiz: { icon: '❓', label: 'Угадай мелодию', hint: 'Треки в случайном порядке по 15 секунд, название и видео скрыты до ответа. На пульте — очки команд.' },
+    bingo: { icon: '🎱', label: 'Музыкальное бинго', hint: 'Песни в случайном порядке по 30 секунд. Гости отмечают их на карточках — на телефоне по QR или распечатанных. Нужно от 9 песен.' }
+};
+const FREEZE_MIN_SEC = 8;
+const FREEZE_MAX_SEC = 25;
+const QUIZ_CLIP_SEC = 15;
+const BINGO_CLIP_SEC = 30;
+
+let activeGame = null; // { type, eventId, blockId, ... } — идущая игра
+let gameTimer = null;
+
+const showGame = document.getElementById('show-game');
+const freezeOverlay = document.getElementById('freeze-overlay');
+const showVideo = document.getElementById('show-video');
+
+function shuffled(list) {
+    const a = [...list];
+    for (let i = a.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [a[i], a[j]] = [a[j], a[i]];
+    }
+    return a;
+}
+
+function clearGameTimer() {
+    clearTimeout(gameTimer);
+    gameTimer = null;
+}
+
+function stopGame() {
+    clearGameTimer();
+    activeGame = null;
+    freezeOverlay.classList.add('hidden');
+    showVideo.classList.remove('masked');
+    showGame.replaceChildren();
+}
+
+function startGame(ev, block, trackIndex = 0) {
+    const base = { eventId: ev.id, blockId: block.id };
+    const copies = block.tracks.map(t => ({ ...t }));
+    const blockRef = { eventId: ev.id, blockId: block.id };
+
+    if (block.game === 'freeze') {
+        startList(trackIndex, copies, false, { loop: true, block: blockRef });
+        activeGame = { ...base, type: 'freeze', frozen: false };
+    } else if (block.game === 'quiz') {
+        startList(0, shuffled(copies), false, { loop: false, block: blockRef });
+        activeGame = { ...base, type: 'quiz', revealed: false, clipDone: false, extended: false, teams: loadTeams(ev.id) };
+    } else if (block.game === 'bingo') {
+        startList(0, shuffled(copies), false, { loop: false, block: blockRef });
+        activeGame = { ...base, type: 'bingo', played: [], finished: false };
+        publishBingo(ev, block);
+    }
+    renderShowNow();
+}
+
+// --- Хуки плеера ---
+function gameOnPlaying() {
+    if (!activeGame || gameTimer) return;
+    if (activeGame.type === 'freeze' && !activeGame.frozen) {
+        const sec = FREEZE_MIN_SEC + Math.random() * (FREEZE_MAX_SEC - FREEZE_MIN_SEC);
+        gameTimer = setTimeout(freezeNow, sec * 1000);
+    } else if (activeGame.type === 'quiz' && !activeGame.clipDone && !activeGame.extended) {
+        gameTimer = setTimeout(quizClipEnd, QUIZ_CLIP_SEC * 1000);
+    } else if (activeGame.type === 'bingo') {
+        const track = activeQueue[activeQueueIndex];
+        if (track && !activeGame.played.includes(track)) activeGame.played.push(track);
+        gameTimer = setTimeout(bingoNext, BINGO_CLIP_SEC * 1000);
+        renderGame();
+    }
+}
+
+// Пауза ведущим (или самой игрой) — таймер отрезка заводится заново при продолжении
+function gameOnPaused() {
+    clearGameTimer();
+}
+
+// true — игра сама решила, что делать после конца трека
+function gameOnEnded() {
+    if (!activeGame) return false;
+    if (activeGame.type === 'quiz') {
+        clearGameTimer();
+        activeGame.clipDone = true;
+        renderGame();
+        return true;
+    }
+    if (activeGame.type === 'bingo') {
+        bingoNext();
+        return true;
+    }
+    return false; // «Замри» играет блок по кругу как обычно
+}
+
+// --- «Замри» ---
+function freezeNow() {
+    clearGameTimer();
+    if (!activeGame || activeGame.type !== 'freeze') return;
+    activeGame.frozen = true;
+    playerPause();
+    freezeOverlay.classList.remove('hidden');
+}
+
+function freezeResume() {
+    if (!activeGame || activeGame.type !== 'freeze') return;
+    activeGame.frozen = false;
+    freezeOverlay.classList.add('hidden');
+    playerPlay(); // событие «играет» заведёт следующую случайную паузу
+}
+
+freezeOverlay.addEventListener('click', (e) => {
+    if (e.target.closest('[data-game="resume"]')) freezeResume();
+});
+
+// --- «Угадай мелодию» ---
+function loadTeams(eventId) {
+    try {
+        const saved = JSON.parse(localStorage.getItem(`quiz-teams:${eventId}`));
+        if (Array.isArray(saved) && saved.length) return saved;
+    } catch { /* нет сохранённых */ }
+    return [{ name: 'Команда 1', score: 0 }, { name: 'Команда 2', score: 0 }];
+}
+
+function saveTeams() {
+    if (!activeGame || !activeGame.teams) return;
+    try { localStorage.setItem(`quiz-teams:${activeGame.eventId}`, JSON.stringify(activeGame.teams)); } catch { /* не критично */ }
+}
+
+function quizClipEnd() {
+    clearGameTimer();
+    if (!activeGame || activeGame.type !== 'quiz') return;
+    activeGame.clipDone = true;
+    fadeOutThen(() => playerPause(), 600);
+    renderGame();
+}
+
+function quizNext() {
+    if (!activeGame || activeGame.type !== 'quiz') return;
+    const next = activeQueueIndex + 1;
+    if (next >= activeQueue.length) {
+        playerPause();
+        activeGame.finished = true;
+        activeGame.revealed = true;
+        renderShowNow('Раунд окончен');
+        return;
+    }
+    Object.assign(activeGame, { revealed: false, clipDone: false, extended: false });
+    clearGameTimer();
+    fadeOutThen(() => playFromList(next, activeQueue, false), 400);
+}
+
+// --- Музыкальное бинго ---
+// Название песни для карточки: без «(Official Video)», «[HD]», «ft. …» и т. п.
+function cleanTitle(name) {
+    return name
+        .replace(/[(\[][^)\]]*[)\]]/g, '')
+        .replace(/\b(official|video|audio|lyrics?|hd|4k|remaster(ed)?|клип|премьера)\b.*$/i, '')
+        .replace(/\s+(ft\.?|feat\.?)\s.*$/i, '')
+        .replace(/\s{2,}/g, ' ')
+        .replace(/[\s\-–—|:]+$/, '')
+        .trim() || name;
+}
+
+function bingoUrl(eventId) {
+    return `${location.origin}/?bingo=${encodeURIComponent(eventId)}`;
+}
+
+function bingoTitles(block) {
+    return [...new Set(block.tracks.map(t => cleanTitle(t.name)))];
+}
+
+// Карточка: 4×4 при 16+ песнях, иначе 3×3
+function bingoSize(count) {
+    return count >= 16 ? 4 : 3;
+}
+
+function makeBingoCard(titles, size) {
+    return shuffled(titles).slice(0, size * size);
+}
+
+// Публикуем названия песен в public_events — по ним телефоны гостей собирают карточки
+async function publishBingo(ev, block) {
+    const titles = bingoTitles(block);
+    if (titles.length < 9) {
+        alert(`Для бинго нужно минимум 9 разных песен в блоке, сейчас ${titles.length}.`);
+        return false;
+    }
+    try {
+        const fb = await loadFirebase();
+        await fb.authReady;
+        const bingo = { titles: titles.slice(0, 100), size: bingoSize(titles.length), round: Date.now(), blockTitle: block.title };
+        const data = {
+            ownerUid: fb.getCurrentUser().uid,
+            title: ev.title,
+            requestsOpen: !!(publicEvent && publicEvent.requestsOpen),
+            updatedAt: Date.now(),
+            bingo
+        };
+        await fb.setDoc(fb.doc(fb.db, "public_events", ev.id), data);
+        if (currentEvent === ev) publicEvent = data;
+        return true;
+    } catch (error) {
+        console.error("Не удалось опубликовать бинго:", error);
+        alert("Не удалось подготовить карточки для телефонов (нужна сеть).");
+        return false;
+    }
+}
+
+function bingoNext() {
+    clearGameTimer();
+    if (!activeGame || activeGame.type !== 'bingo') return;
+    const next = activeQueueIndex + 1;
+    if (next >= activeQueue.length) {
+        activeGame.finished = true;
+        fadeOutThen(() => playerPause());
+        renderShowNow('Все песни сыграны');
+        return;
+    }
+    fadeOutThen(() => playFromList(next, activeQueue, false), 800);
+}
+
+// Печать карточек: отдельная область, видимая только при печати
+function printBingoCards(block) {
+    const titles = bingoTitles(block);
+    if (titles.length < 9) {
+        alert(`Для бинго нужно минимум 9 разных песен в блоке, сейчас ${titles.length}.`);
+        return;
+    }
+    const countText = prompt('Сколько карточек напечатать?', '20');
+    const count = Math.min(200, Math.max(1, parseInt(countText, 10) || 0));
+    if (!countText || !count) return;
+    const size = bingoSize(titles.length);
+    const printArea = document.getElementById('print-area');
+    printArea.replaceChildren(...Array.from({ length: count }, (_, n) =>
+        el('div', { class: 'bingo-print-card' },
+            el('div', { class: 'bingo-print-head' },
+                el('strong', {}, `🎱 Музыкальное бинго · ${currentEvent.title}`),
+                el('span', {}, `№ ${n + 1}`)),
+            el('div', { class: `bingo-grid size-${size}` },
+                ...makeBingoCard(titles, size).map(t => el('div', { class: 'bingo-cell' }, t))))));
+    window.print();
+}
+
+// --- Панель игры на пульте ---
+function renderGame() {
+    if (!activeGame || !showMode.classList.contains('open')) {
+        showGame.replaceChildren();
+        showVideo.classList.remove('masked');
+        return;
+    }
+    // Не мешаем вводу названия команды
+    if (showGame.contains(document.activeElement) && document.activeElement.tagName === 'INPUT') return;
+    const g = activeGame;
+    const total = activeQueue ? activeQueue.length : 0;
+    showVideo.classList.toggle('masked', g.type === 'quiz' && !g.revealed);
+
+    if (g.type === 'freeze') {
+        showGame.replaceChildren(
+            el('p', { class: 'game-hint' }, `🧊 Замри: музыка встанет через ${FREEZE_MIN_SEC}–${FREEZE_MAX_SEC} секунд`),
+            el('button', { class: 'game-btn', dataset: { game: 'freeze-now' } }, '🧊 Замри сейчас'));
+    } else if (g.type === 'quiz') {
+        const track = activeQueue[activeQueueIndex];
+        showGame.replaceChildren(
+            el('div', { class: 'game-row' },
+                el('span', { class: 'game-hint' }, g.finished ? 'Раунд окончен' : `❓ Трек ${activeQueueIndex + 1} из ${total}` + (g.clipDone ? ' · отрывок закончился' : '')),
+                g.revealed && track ? el('strong', { class: 'quiz-answer' }, `${track.name}`) : null),
+            el('div', { class: 'game-row' },
+                el('button', { class: 'game-btn', dataset: { game: 'quiz-more' }, disabled: g.finished }, '▶ Дольше'),
+                el('button', { class: 'game-btn', dataset: { game: 'quiz-reveal' }, disabled: g.revealed }, '👁 Ответ'),
+                el('button', { class: 'game-btn primary', dataset: { game: 'quiz-next' }, disabled: g.finished }, 'Следующий ⏭')),
+            el('div', { class: 'quiz-teams' },
+                ...g.teams.map((team, i) => el('div', { class: 'quiz-team' },
+                    el('input', { value: team.name, dataset: { team: i }, 'aria-label': 'Название команды' }),
+                    el('button', { class: 'game-btn small', dataset: { game: 'score-minus', team: i } }, '−'),
+                    el('strong', { class: 'quiz-score' }, String(team.score)),
+                    el('button', { class: 'game-btn small primary', dataset: { game: 'score-plus', team: i } }, '+1'))),
+                el('button', { class: 'game-btn small', dataset: { game: 'team-add' } }, '＋ Команда')));
+    } else if (g.type === 'bingo') {
+        showGame.replaceChildren(
+            el('div', { class: 'game-row' },
+                el('span', { class: 'game-hint' }, g.finished ? '🎱 Все песни сыграны' : `🎱 Сыграно ${g.played.length} из ${total}`),
+                el('button', { class: 'game-btn', dataset: { game: 'bingo-qr' } }, '📱 QR карточек'),
+                el('button', { class: 'game-btn primary', dataset: { game: 'bingo-next' }, disabled: g.finished }, 'Дальше ⏭')),
+            el('ol', { class: 'bingo-played', reversed: true },
+                ...[...g.played].reverse().map(t => el('li', {}, cleanTitle(t.name)))));
+    }
+}
+
+showGame.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-game]');
+    if (!btn || !activeGame) return;
+    const g = activeGame;
+    const team = g.teams && g.teams[Number(btn.dataset.team)];
+    switch (btn.dataset.game) {
+        case 'freeze-now': freezeNow(); break;
+        case 'quiz-more':
+            g.extended = true;
+            clearGameTimer();
+            playerPlay();
+            break;
+        case 'quiz-reveal':
+            g.revealed = true;
+            renderShowNow();
+            break;
+        case 'quiz-next': quizNext(); break;
+        case 'score-plus': team.score++; saveTeams(); renderGame(); break;
+        case 'score-minus': team.score = Math.max(0, team.score - 1); saveTeams(); renderGame(); break;
+        case 'team-add':
+            g.teams.push({ name: `Команда ${g.teams.length + 1}`, score: 0 });
+            saveTeams();
+            renderGame();
+            break;
+        case 'bingo-qr': openQrFullscreen(bingoUrl(g.eventId), 'Карточка бинго 🎱'); break;
+        case 'bingo-next': bingoNext(); break;
+    }
+});
+
+showGame.addEventListener('change', (e) => {
+    const i = e.target.dataset.team;
+    if (i === undefined || !activeGame || !activeGame.teams) return;
+    activeGame.teams[Number(i)].name = e.target.value.trim() || `Команда ${Number(i) + 1}`;
+    saveTeams();
+});
+
+// --- Копия мероприятия: повторить удачный сценарий вместе с треками ---
+async function duplicateEvent() {
+    const src = currentEvent;
+    try {
+        const fb = await loadFirebase();
+        await fb.authReady;
+        const blocks = src.blocks.map(b => ({ ...b, id: newBlockId(), tracks: b.tracks.map(t => ({ ...t })) }));
+        const data = { uid: fb.getCurrentUser().uid, title: `${src.title} (копия)`, type: src.type, date: '', blocks, createdAt: Date.now() };
+        const ref = await fb.addDoc(fb.collection(fb.db, "events"), data);
+        const ev = { id: ref.id, ...data };
+        events.push(ev);
+        openEvent(ev);
+    } catch (error) {
+        console.error("Не удалось сделать копию:", error);
+        alert("Не удалось сделать копию мероприятия.");
+    }
+}
+
+// --- Карточка бинго на телефоне гостя (?bingo=<id>) ---
+async function startBingoPage(eventId) {
+    document.body.classList.add('guest-mode');
+    guestView.classList.remove('hidden');
+    document.title = 'Музыкальное бинго';
+    guestView.replaceChildren(el('p', { class: 'status' }, 'Загрузка…'));
+
+    let fb;
+    try {
+        fb = await loadFirebase();
+        await fb.authReady;
+    } catch {
+        guestView.replaceChildren(el('p', { class: 'status' }, 'Нет связи. Проверьте интернет и обновите страницу.'));
+        return;
+    }
+
+    fb.onSnapshot(fb.doc(fb.db, "public_events", eventId), (snap) => {
+        const pub = snap.exists() ? snap.data() : null;
+        if (!pub || !pub.bingo) {
+            guestView.replaceChildren(
+                el('p', { class: 'guest-label' }, '🎱 Музыкальное бинго'),
+                el('p', { class: 'guest-closed' }, 'Бинго ещё не началось — откройте ссылку, когда ведущий объявит игру.'));
+            return;
+        }
+        renderBingoCard(eventId, pub);
+    }, () => guestView.replaceChildren(el('p', { class: 'status' }, 'Ссылка недействительна.')));
+}
+
+function renderBingoCard(eventId, pub) {
+    const { titles, size, round } = pub.bingo;
+    // Карточка и отметки живут на телефоне гостя; новый раунд — новая карточка
+    const storeKey = `bingo:${eventId}:${round}`;
+    let state;
+    try { state = JSON.parse(localStorage.getItem(storeKey)); } catch { state = null; }
+    if (!state || !Array.isArray(state.cells) || state.cells.length !== size * size) {
+        state = { cells: makeBingoCard(titles, size), marked: [] };
+    }
+    const save = () => { try { localStorage.setItem(storeKey, JSON.stringify(state)); } catch { /* приватный режим */ } };
+    save();
+
+    const hasLine = () => {
+        const m = new Set(state.marked);
+        const lines = [];
+        for (let i = 0; i < size; i++) {
+            lines.push([...Array(size)].map((_, j) => i * size + j));      // строка
+            lines.push([...Array(size)].map((_, j) => j * size + i));      // столбец
+        }
+        lines.push([...Array(size)].map((_, j) => j * size + j));          // диагонали
+        lines.push([...Array(size)].map((_, j) => j * size + (size - 1 - j)));
+        return lines.some(line => line.every(c => m.has(c)));
+    };
+
+    const banner = el('p', { class: 'bingo-banner hidden' }, '🎉 БИНГО! Поднимите руку и покажите карточку ведущему');
+    const grid = el('div', { class: `bingo-grid size-${size}` },
+        ...state.cells.map((t, i) => el('button', { class: state.marked.includes(i) ? 'bingo-cell marked' : 'bingo-cell', dataset: { cell: i } }, t)));
+    banner.classList.toggle('hidden', !hasLine());
+
+    grid.addEventListener('click', (e) => {
+        const cell = e.target.closest('[data-cell]');
+        if (!cell) return;
+        const i = Number(cell.dataset.cell);
+        state.marked = state.marked.includes(i) ? state.marked.filter(x => x !== i) : [...state.marked, i];
+        cell.classList.toggle('marked');
+        save();
+        banner.classList.toggle('hidden', !hasLine());
+    });
+
+    guestView.replaceChildren(
+        el('p', { class: 'guest-label' }, '🎱 Музыкальное бинго'),
+        el('h1', {}, pub.title),
+        el('p', { class: 'requests-hint' }, 'Отмечайте песни, которые прозвучали. Собрали линию — по горизонтали, вертикали или диагонали — кричите «Бинго!».'),
+        grid, banner);
+}
+
+if (BINGO_EVENT_ID) startBingoPage(BINGO_EVENT_ID);

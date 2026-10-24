@@ -1319,3 +1319,296 @@ header {
     color: var(--gold);
     font-weight: 500;
 }
+
+/* --- 15. ИГРЫ --- */
+#show-video {
+    position: relative;
+}
+
+/* «Угадай мелодию»: видео выдаёт ответ — закрываем его до «Ответ» */
+#show-video.masked::after {
+    content: '?';
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #111;
+    color: var(--gold);
+    font-size: 5rem;
+    font-weight: 500;
+}
+
+#show-game:empty {
+    display: none;
+}
+
+#show-game {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 12px;
+    border: 1px solid rgba(255, 255, 240, 0.15);
+    border-radius: 12px;
+    max-height: 32vh;
+    overflow-y: auto;
+}
+
+.game-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+}
+
+.game-hint {
+    flex: 1;
+    min-width: 0;
+    color: var(--gray);
+    font-size: 0.9rem;
+}
+
+.quiz-answer {
+    width: 100%;
+    color: var(--gold);
+    font-size: 1.1rem;
+    font-weight: 500;
+}
+
+.game-btn {
+    flex: 1;
+    padding: 12px 10px;
+    border: 1px solid rgba(255, 255, 240, 0.25);
+    border-radius: 10px;
+    background: transparent;
+    color: var(--ivory);
+    font-family: inherit;
+    font-size: 0.95rem;
+    cursor: pointer;
+}
+
+.game-btn.primary {
+    background: var(--gold);
+    border-color: var(--gold);
+    color: var(--dark);
+    font-weight: 500;
+}
+
+.game-btn.small {
+    flex: 0 0 auto;
+    padding: 6px 12px;
+}
+
+.game-btn:disabled {
+    opacity: 0.35;
+    cursor: default;
+}
+
+.quiz-teams {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.quiz-team {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.quiz-team input {
+    flex: 1;
+    min-width: 0;
+    padding: 6px 8px;
+    border: 1px solid rgba(255, 255, 240, 0.15);
+    border-radius: 8px;
+    background: transparent;
+    color: var(--ivory);
+    font-family: inherit;
+    font-size: 16px;
+}
+
+.quiz-score {
+    min-width: 32px;
+    text-align: center;
+    font-size: 1.3rem;
+    color: var(--gold);
+    font-variant-numeric: tabular-nums;
+}
+
+.bingo-played {
+    padding-left: 28px;
+    color: var(--ivory);
+    font-size: 0.9rem;
+}
+
+.bingo-played li:first-child {
+    color: var(--gold);
+    font-weight: 500;
+}
+
+#freeze-overlay {
+    position: absolute;
+    inset: 0;
+    z-index: 5;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    background: #0d3b66;
+    color: #fff;
+    text-align: center;
+}
+
+.freeze-title {
+    font-size: clamp(3.5rem, 18vw, 9rem);
+    font-weight: 500;
+    letter-spacing: 4px;
+    animation: freeze-pulse 1s ease-in-out infinite alternate;
+}
+
+.freeze-emoji {
+    font-size: 4rem;
+}
+
+.freeze-btn {
+    padding: 18px 40px;
+    border: none;
+    border-radius: 16px;
+    background: var(--gold);
+    color: var(--dark);
+    font-family: inherit;
+    font-size: 1.4rem;
+    font-weight: 500;
+    cursor: pointer;
+}
+
+@keyframes freeze-pulse {
+    from { transform: scale(1); }
+    to { transform: scale(1.08); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .freeze-title {
+        animation: none;
+    }
+}
+
+.block-game-hint {
+    margin-top: 6px;
+    font-size: 0.8rem;
+    color: var(--gray);
+}
+
+.block-card .block-row .ghost-btn {
+    flex: 1;
+    margin-top: 8px;
+}
+
+/* Карточка бинго: на телефоне гостя и при печати */
+.bingo-grid {
+    display: grid;
+    gap: 6px;
+    margin: 16px 0;
+}
+
+.bingo-grid.size-3 {
+    grid-template-columns: repeat(3, 1fr);
+}
+
+.bingo-grid.size-4 {
+    grid-template-columns: repeat(4, 1fr);
+}
+
+.bingo-cell {
+    aspect-ratio: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 4px;
+    border: 1px solid var(--gold);
+    border-radius: 8px;
+    background: #fff;
+    color: var(--dark);
+    font-family: inherit;
+    font-size: 0.8rem;
+    line-height: 1.15;
+    text-align: center;
+    overflow: hidden;
+    word-break: break-word;
+    cursor: pointer;
+}
+
+.bingo-cell.marked {
+    background: var(--gold);
+    color: #fff;
+    font-weight: 500;
+}
+
+.bingo-banner {
+    padding: 16px;
+    border-radius: 12px;
+    background: var(--gold);
+    color: #fff;
+    font-size: 1.1rem;
+    font-weight: 500;
+    text-align: center;
+}
+
+#print-area {
+    display: none;
+}
+
+@media print {
+    body > *:not(#print-area) {
+        display: none !important;
+    }
+
+    #print-area {
+        display: block;
+    }
+
+    .bingo-print-card {
+        break-inside: avoid;
+        page-break-inside: avoid;
+        margin-bottom: 12mm;
+        padding: 6mm;
+        border: 1px solid #999;
+        border-radius: 4mm;
+    }
+
+    .bingo-print-card:nth-child(2n) {
+        break-after: page;
+        page-break-after: always;
+    }
+
+    .bingo-print-head {
+        display: flex;
+        justify-content: space-between;
+        font-size: 11pt;
+    }
+
+    .bingo-print-card .bingo-cell {
+        aspect-ratio: auto;
+        height: 22mm;
+        border: 1px solid #333;
+        border-radius: 2mm;
+        font-size: 9pt;
+    }
+}
+
+/* Низкий экран (ноутбук): панель игры не должна съедать сценарий — пульт прокручивается */
+#show-mode {
+    overflow-y: auto;
+}
+
+#show-blocks {
+    min-height: 140px;
+}
+
+/* Пульт прокручивается — оверлей «Замри» и панель заказов держим у экрана, а не у прокрутки */
+#freeze-overlay,
+#show-requests-panel {
+    position: fixed;
+}

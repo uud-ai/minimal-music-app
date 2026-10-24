@@ -82,6 +82,8 @@
                 <strong id="show-block-title">Ничего не запущено</strong>
                 <span id="show-track-title"></span>
             </div>
+            <!-- Панель идущей игры: «Замри», «Угадай мелодию», бинго -->
+            <div id="show-game"></div>
             <div class="show-controls">
                 <button id="show-stop">⏹ Стоп</button>
                 <button id="show-playpause">▶ Играть</button>
@@ -89,6 +91,11 @@
             </div>
             <ol id="show-blocks"></ol>
             <div id="show-requests-panel" class="hidden"></div>
+            <div id="freeze-overlay" class="hidden">
+                <p class="freeze-title">ЗАМРИ!</p>
+                <p class="freeze-emoji">🧊</p>
+                <button class="freeze-btn" data-game="resume">▶ Музыка!</button>
+            </div>
         </div>
 
         <!-- QR-код для гостей на весь экран — показать залу или вывести на проектор -->
@@ -114,6 +121,9 @@
     
     <!-- Страница гостя (?guest=<id>): заказ песни по QR-коду вместо приложения -->
     <main id="guest-view" class="hidden"></main>
+
+    <!-- Карточки бинго для печати: видны только при печати -->
+    <div id="print-area"></div>
 
     <script type="module" src="main.js"></script>
 </body>

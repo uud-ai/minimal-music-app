@@ -23,8 +23,10 @@ service cloud.firestore {
       allow create, update: if request.auth != null
                             && request.resource.data.ownerUid == request.auth.uid
                             && get(/databases/$(database)/documents/events/$(eventId)).data.uid == request.auth.uid
-                            && request.resource.data.keys().hasOnly(['ownerUid', 'title', 'requestsOpen', 'updatedAt'])
-                            && request.resource.data.requestsOpen is bool;
+                            && request.resource.data.keys().hasOnly(['ownerUid', 'title', 'requestsOpen', 'updatedAt', 'bingo'])
+                            && request.resource.data.requestsOpen is bool
+                            // bingo — названия песен для карточек музыкального бинго на телефонах гостей
+                            && (!('bingo' in request.resource.data) || request.resource.data.bingo.titles.size() <= 100);
       allow delete: if request.auth != null && resource.data.ownerUid == request.auth.uid;
     }
 
