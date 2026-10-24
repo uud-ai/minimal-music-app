@@ -52,7 +52,10 @@ self.addEventListener('fetch', (event) => {
         }
         return response;
       })
-      .catch(() => caches.match(event.request))
+      // Офлайн-переход по ссылке с параметрами (например, /?bingo=…) в кэше не найдётся —
+      // отдаём сохранённую оболочку приложения вместо ошибки браузера
+      .catch(() => caches.match(event.request).then((cached) =>
+        cached || (event.request.mode === 'navigate' ? caches.match('./') : undefined)))
   );
 });
 
